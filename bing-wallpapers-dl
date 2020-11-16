@@ -1,8 +1,9 @@
 #! /bin/bash
-
 # vim: set ft=bash ff=unix fenc=utf-8 et ts=2 sw=2 :
-
+#
+# bing-wallpaper-dl
 # Download all wallpapers from Bing Wallpaprt Archive
+#
 # AUTHOR: hmr
 # ORIGIN: 2020-11-15 20:30:00
 
@@ -19,7 +20,9 @@ MONTH_LAST=$(date --date='last month' +"%Y%m")
 
 echo URL_BASE: ${URL_BASE:="https://bingwallpaper.anerg.com/us/"}
 
+# TODO: Option processing
 OPT_ALL=""
+# TODO: Output directory must be specified by user.
 OPT_DIR_OUTPUT="output"
 
 DBG_MONTH=""
@@ -63,6 +66,7 @@ do
   if [ "${DL_BIN}" = "wget" ]; then
     wget -nc -nv -P ${OPT_DIR_OUTPUT} ${TGT_URL_LST[@]}
   elif [ "${DL_BIN}" = "curl" ]; then
+    # TODO: Check image file existance.
     curl --remote-name-all --output-dir ${OPT_DIR_OUTPUT} --progress-bar ${TGT_URL_LST[@]}
   fi
 done
