@@ -8,11 +8,21 @@
 # ORIGIN: 2020-11-15 20:30:00
 
 set -e -u
+shopt -s expand_aliases
 
 declare DBG_MONTH
 declare YEAR MONTH MONTH_NOW MONTH_LAST DL_BIN URL_BASE
 declare OPT_ALL OPT_DIR_MONTH OPT_DIR_OUTPUT
 declare -a TGT_MONTH_LST TGT_URL_LST
+
+if ! date --version >& /dev/null; then
+  if command -v gdate >& /dev/null; then
+    alias date=gdate
+  else
+    echo "GNU date is required."
+    exit 1
+  fi
+fi
 
 YEAR_NOW=$(date +"%Y")
 MONTH_NOW=$(date +"%Y%m")
