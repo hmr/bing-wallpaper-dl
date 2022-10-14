@@ -1,0 +1,125 @@
+#! /bin/bash
+# vim: set ft=sh ff=unix fenc=utf-8 et ts=2 sw=2 :
+#
+# bing-wallpaper-dl2
+# Download all wallpapers from Bing Wallpaprt Archive
+# New layout and 4k photos supported version
+#
+# AUTHOR: hmr
+# ORIGIN: 2022-10-14 20:01:00
+
+set -e -u
+shopt -s expand_aliases
+
+declare DBG_MONTH
+declare YEAR MONTH MONTH_NOW MONTH_LAST DL_BIN URL_BASE
+declare OPT_ALL OPT_DIR_MONTH OPT_DIR_OUTPUT
+declare -a TGT_MONTH_LST TGT_URL_LST TGT_URL_LST
+
+if ! date --version >& /dev/null; then
+  if command -v gdate >& /dev/null; then
+    alias date=gdate
+  else
+    echo "GNU date is required."
+    exit 1
+  fi
+fi
+
+YEAR_NOW=$(date +"%Y")
+MONTH_NOW=$(date +"%Y%m")
+MONTH_LAST=$(date --date='last month' +"%Y%m")
+
+echo "URL_BASE: ${URL_BASE:="https://bingwallpaper.anerg.com"}"
+
+# TODO: Option processing
+OPT_ALL=""
+# TODO: Output directory must be specified by user.
+OPT_DIR_OUTPUT="output"
+# OPT_DIR_OUTPUT="output2"
+echo "Output directory: ${OPT_DIR_OUTPUT}"
+
+DBG_MONTH=""
+
+if command -v wget >& /dev/null; then
+  DL_BIN="wget"
+  echo wget found.
+elif command -v curl >& /dev/null; then
+  DL_BIN="curl"
+  echo curl found.
+else
+  echo "Can't find either wget nor curl. Exit."
+  exit 1;
+fi
+#DL_BIN="curl"
+
+
+# Make sequence of year and month.
+for YEAR in $(seq 2010 ${YEAR_NOW})
+do
+  for MONTH in $(printf '%02d ' {1..12})
+  do
+    TGT_MONTH_LST+=( ${YEAR}${MONTH} )
+  done
+done
+
+# Download loop
+for TGT_MONTH in ${TGT_MONTH_LST[@]}
+do
+  [[ ${TGT_MONTH} -gt ${MONTH_NOW} ]] && continue
+  [[ ${TGT_MONTH} -lt 202102 ]] && [[ -z ${OPT_ALL} ]] && continue
+  [[ -n ${DBG_MONTH} ]] && [[ ${TGT_MONTH} -ne ${MONTH_LAST} ]] && continue
+
+  TGT_URL_LST=()
+  TGT_DETAIL_LST=()
+
+  echo "Target month: ${TGT_MONTH}"
+  URL_INDEX="${URL_BASE}/archive/us/${TGT_MONTH}"
+  echo "URL_INDEX: ${URL_INDEX}"
+  TGT_DETAIL_LST=($(curl -s ${URL_INDEX} | grep 'class="d-inline-block py-3"' | grep -Po 'href=".*?"' | sed -e 's/href="//g' -e 's/"//g' | tr "\n" " "))
+  echo "TGT_DETAIL_LST: ${#TGT_DETAIL_LST[@]}"
+
+  for TGT_DETAIL in ${TGT_DETAIL_LST[@]}
+  do
+    echo "${TGT_DETAIL}" | grep -q "1920x1080" && continue
+    # echo "TGT_DETAIL: ${TGT_DETAIL}"
+    URL_DETAIL="${URL_BASE}${TGT_DETAIL}"
+    URL_PHOTO=$(curl -s "${URL_DETAIL}" | grep 'class="btn d-block btn-warning"' | grep -o 'http.://.*\.jpg')
+    TGT_URL_LST+=("${URL_PHOTO}")
+    echo -e "${#TGT_URL_LST[@]}\t${URL_DETAIL}"
+  done
+
+  echo "Downloading ${#TGT_URL_LST[@]} wallpapers using ${DL_BIN}."
+
+  if ! [[ -d ${OPT_DIR_OUTPUT} ]]; then
+    mkdir "${OPT_DIR_OUTPUT}"
+    echo "Output directory '${OPT_DIR_OUTPUT}' was made."
+  fi
+
+  if [ "${DL_BIN}" = "wget" ]; then
+    echo "Downloading photos..."
+    WGET_LOG="$(wget --no-verbose --no-clobber --directory-prefix="${OPT_DIR_OUTPUT}" --content-disposition ${TGT_URL_LST[@]} 2>&1 )"
+  elif [ "${DL_BIN}" = "curl" ]; then
+    # TODO: Check image file existance.
+    curl --remote-header-name --remote-name-all --output-dir ${OPT_DIR_OUTPUT} --progress-bar ${TGT_URL_LST[@]}
+  fi
+
+  echo "Donwload completed."
+  # echo "WGET_LOG: ${WGET_LOG}"
+
+  if [[ ${DL_BIN} = wget ]]; then
+    echo "Changing filename..."
+    FILE_PATH_LST="$(echo "${WGET_LOG}" | cut -d ">" -f 2 | grep -o "${OPT_DIR_OUTPUT}/.*\.jpg" | tr "\n" " ")"
+    for FILE_PATH in ${FILE_PATH_LST}
+    do
+      # echo "FILE_PATH: ${FILE_PATH}"
+      GEOMETRY="$(identify -verbose "${FILE_PATH}" | grep "Geometry" | sed -e 's/^ *//g' | cut -d " " -f 2 | cut -d "+" -f 1)"
+      # echo "GEOMETRY: ${GEOMETRY}"
+      FILE_CORE="$(echo "${FILE_PATH}" | grep -o "[[:alnum:]]*\.jpg" | cut -d "." -f 1)"
+      # echo "FILE_CORE: ${FILE_CORE}"
+      mv -v "${FILE_PATH}" "${OPT_DIR_OUTPUT}/${FILE_CORE}_${GEOMETRY}.jpg"
+    done
+  fi
+  echo
+
+done
+
