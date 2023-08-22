@@ -21,4 +21,4 @@ Clone this repository `git clone https://github.com/hmr/bing-wallpaper-dl.git`
 Any unix/linux/macOS with following softwares installed.
 - bash
 - curl
-
+- jq (unsplash only)
