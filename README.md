@@ -1,5 +1,5 @@
 # bing-wallpaper-dl
-Small script to download Bing's image of the day.
+Small scripts to download Bing's image of the day or Unsplash wallpaper collection.
 
 ## Usage
 
