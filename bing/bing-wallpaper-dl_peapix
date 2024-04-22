@@ -1,0 +1,608 @@
+#! /usr/bin/env bash
+#
+# vim: set noet syn=bash ft=sh ff=unix fenc=utf-8 ts=4 sw=0 : # GPP default modeline for shell script
+# shellcheck shell=bash disable=SC1091,SC3010,SC3021,SC3037 source=${GPP_HOME}
+# shellcheck shell=bash disable=SC2155
+# shellcheck shell=bash disable=SC2207
+#
+# bing-wallpaper-dl.bash
+# Download wallpapers from Bing Wallpaper Gallery(https://peapix.com)
+#
+# AUTHOR: hmr
+# ORIGIN: 2024-03-25T22:03:23
+
+MAX_CONCURRENT_JOBS=4
+
+# TODO: Output directory should be changeable as an option.
+OUTPUT_DIR="output"
+
+# TODO: DB file name should be changeable?
+# TODO: DB should be made automatically.
+DB_FILE="bing_wallpaper.sqlite"
+ERROR_LOG_FILE="bing_wallpaper.error.log"
+
+declare G_SHUTDOWN
+function safe_exit() {
+	G_SHUTDOWN=1
+}
+
+function wait_for_key() {
+	local keyin
+	while true; do
+		read -r -t 0.5 -n 1 keyin
+		case "${keyin}" in
+			q ) safe_exit;;
+		esac
+	done
+}
+
+function check_required_software() {
+	# GNU Grep is required to use '-P' option.
+	if type ggrep > /dev/null; then
+		echo "Using ggrep as GNU grep."
+		GNU_GREP_BIN="ggrep"
+	elif grep --version | grep -q "GNU grep"; then
+		echo "Using grep as GNU grep."
+		GNU_GREP_BIN="grep"
+	else
+		echo "This program requires GNU grep."
+		exit 1
+	fi
+
+	# GNU sed is required for shortest match.
+	if type gsed > /dev/null; then
+		echo "Using gsed as GNU sed."
+		GNU_SED_BIN="gsed"
+	elif sed --version 2>&1 | grep -q "GNU sed"; then
+		echo "Using sed as GNU sed."
+		GNU_SED_BIN="sed"
+	else
+		echo "This program requires GNU sed."
+		exit 1
+	fi
+}
+
+function w_echo() {
+	(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && return
+	echo "${@}"
+}
+
+function h_rule() {
+	(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && return
+
+	local RULE=$1 COLS=$(tput cols)
+	for ((i=0; i<(COLS - 5 ); i++))
+	do
+		echo -n "${RULE:==}"
+	done
+	echo
+}
+
+create_table() {
+	local SQL="
+	create table if not exists mst_site (
+		site_id text primary key,
+		site_name text,
+		bing_country text,
+		site_url text
+	);"
+
+	if ! sqlite3 "${DB_FILE}" "${SQL}"; then
+		echo "ERROR: create table(1) failed."
+		exit 3
+	fi
+
+	SQL="
+	create table if not exists bing_photos (
+		id		integer	primary key,
+		site_id		text		not null,
+		gallery_id	text		not null,
+		updated_date	text		not null,
+		title		text		not null,
+		photo_url	text		not null,
+		width		integer,
+		height		integer,
+		orig_filename	text		not null,
+		saved_filename	text		not null,
+		hash_blake3	text,
+		detail_page	integer		not null,
+		short_desc	text,
+		long_desc	text
+	);"
+
+	if ! sqlite3 "${DB_FILE}" "${SQL}"; then
+		echo "ERROR: create table(2) failed."
+		exit 3
+	fi
+}
+
+check_table_existence() {
+    local table_name="$1"
+
+    local query="SELECT name FROM sqlite_master WHERE type='table' AND name='$table_name';"
+    local result=$(sqlite3 "${DB_FILE}" "$query")
+
+    if [[ "$result" == "$table_name" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+function check_db_detail_page(){
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+	local D_PAGE="$(basename "$1")"
+	local SQL_SELECT="SELECT COUNT(1) FROM bing_photos where detail_page='${D_PAGE}'"
+	local RECORDS=0
+	local RETCODE="255"
+	while [[ ${RETCODE} -ne 0 ]]; do
+		RECORDS="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
+		RETCODE=$?
+		if [[ ${RETCODE} -ne 0 ]]; then
+			echo "ERROR: DB select error [code:${RES_INSERT}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+		fi
+	done
+	if (( RECORDS > 0 )); then
+		w_echo "Already downloaded! [${D_PAGE}] @ ${FUNCNAME[0]}()"
+	fi
+
+	[[ $RECORDS -gt 255 ]] && RECORDS=255
+	return "$RECORDS"
+}
+
+function check_db_filename(){
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+	local PHOTO_ORIG_FILENAME=$1
+	local SQL_SELECT="SELECT COUNT(1) FROM bing_photos where orig_filename='${PHOTO_ORIG_FILENAME}'"
+	local RECORDS=0
+	local RETCODE="255"
+	while [[ ${RETCODE} -ne 0 ]]; do
+		RECORDS="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
+		RETCODE=$?
+		if [[ ${RETCODE} -ne 0 ]]; then
+			echo "ERROR: ${PHOTO_DATE} ${GALLERY_ID} ${PHOTO_FILE_URL} DB select error [code:${RES_INSERT}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+		fi
+	done
+	if (( RECORDS > 0 )); then
+		w_echo "Already downloaded! [${PHOTO_ORIG_FILENAME}] @ ${FUNCNAME[0]}()"
+	fi
+
+	[[ $RECORDS -gt 255 ]] && RECORDS=255
+	return "$RECORDS"
+}
+
+function do_download(){
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+	local PAGE="${1}"
+
+	local GALLERY_ID="$(basename "${CNT}")"
+	# https://peapix.com/bing/46772
+	local DETAIL_PAGE_URL="${BASE_URL}${PAGE}"
+	w_echo "${DETAIL_PAGE_URL}"
+
+	# Check existence 1
+	if ! check_db_detail_page "${DETAIL_PAGE_URL}"; then
+		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1
+	fi
+
+	# Get photo detail page
+	local HTML="$(curl -s "${DETAIL_PAGE_URL}")"
+	local IS_404="$(echo "${HTML}" | grep '404!' && echo "1")"
+	if [[ ${IS_404} ]]; then
+		w_echo "ERROR: 404 Not Found (skip)"
+		echo "ERROR: 404 Not Found [$GALLERY_ID] [${YEAR}/${MONTH}/$(printf "%02d" $((i+1))) / DL:${DOWNLOADED_NUM}] ${DETAIL_PAGE_URL}" >> "${ERROR_LOG_FILE}"
+		return
+	fi
+
+	local PHOTO_FILE_URL="$(echo "${HTML}" |  grep 'src: "https://img\.peapix\.com/.*\.jpg' | "${GNU_SED_BIN}" -e 's/^ \+//g' -e 's/_UHD//g' -e 's/src: "\(.\+\)",/\1/g' -e 's/\r$//g')"
+	# Convert '5b2e5c1b1e6542408f4cfa822354184f_UHD.jpg' to '5b2e5c1b1e6542408f4cfa822354184f'
+	local PHOTO_ORIG_FILENAME="$(basename "${PHOTO_FILE_URL}" | "${GNU_SED_BIN}" -e 's/\.jpg$//g' -e 's/_.\+$//g')"
+	local PHOTO_TITLE="$(echo "${HTML}" | grep "og:title" | "${GNU_SED_BIN}" -e 's/.\+content="\(.\+\)".\+$/\1/g')"
+	local PHOTO_TITLE_SAFE=""
+	if [[ ${OPT_SPC_DELETE} ]]; then
+		PHOTO_TITLE_SAFE="$(echo "${PHOTO_TITLE}" | tr -d " "  | tr "/" "-")"
+	elif [[ ${OPT_SPC_TR_HYPHEN} ]]; then
+		PHOTO_TITLE_SAFE="$(echo "${PHOTO_TITLE}" | tr " " "-" | tr "/" "-")"
+	elif [[ ${OPT_SPC_TR_UNDER} ]]; then
+		PHOTO_TITLE_SAFE="$(echo "${PHOTO_TITLE}" | tr " " "_" | tr "/" "-")"
+	else
+		PHOTO_TITLE_SAFE="$(echo "${PHOTO_TITLE}" | tr "/" "-")"
+	fi
+	local PHOTO_DATE="$(echo "${HTML}" | grep -o '<time datetime=".*">' | "${GNU_SED_BIN}" -e 's/<time datetime="\([0-9-]\+\)">/\1/g')"
+	local PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="typography-body-2 font-weight-medium mb-3"' | "${GNU_SED_BIN}" -e 's/<h2[^>]\+>\(.\+\)<\/h2>/\1/g')"
+	local PHOTO_FILENAME="${OUTPUT_DIR}/${PHOTO_DATE}_${PHOTO_TITLE_SAFE}.jpg"
+	# w_echo "PHOTO_FILE_URL: ${PHOTO_FILE_URL}"
+	w_echo "${PHOTO_DATE} ${PHOTO_TITLE}"
+	# w_echo "PHOTO_ORIG_FILENAME: ${PHOTO_ORIG_FILENAME}"
+	w_echo "${PHOTO_SHORT_DESC}"
+	# w_echo "PHOTO_FILENAME: ${PHOTO_FILENAME}"
+
+	# Check existence 2
+	if ! check_db_filename "${PHOTO_ORIG_FILENAME}"; then
+		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1
+	fi
+
+	# Do download until success
+	local FILE_TYPE=""
+	until [[ ${FILE_TYPE} =~ "JPEG" ]]; do
+		# w_echo -n "${PHOTO_FILE_URL}" | xxd
+		curl -s -R --create-dirs -o "${PHOTO_FILENAME}" "${PHOTO_FILE_URL}"
+		local CURL_RES=$?
+		if [[ ${CURL_RES} -ne 0 ]]; then
+			w_echo "ERROR: Curl download error(${CURL_RES})"
+			echo -e "Photo DL error [code: ${CURL_RES}] ${PHOTO_DATE} ${DETAIL_PAGE_URL} ${PHOTO_FILE_URL}" >> "${ERROR_LOG_FILE}"
+			return
+		fi
+		# File type check
+		FILE_TYPE="$(file "${PHOTO_FILENAME}")"
+		if ! [[ ${FILE_TYPE} =~ "JPEG" ]]; then
+			w_echo "ERROR: Website's internal error occured. Trying again."
+			rm -f ${PHOTO_FILENAME}
+		fi
+	done
+
+	local PHOTO_WIDTH="$(sips -g pixelWidth "${PHOTO_FILENAME}" | grep "pixel" | tr -d " " | cut -d ":" -f 2)"
+	local PHOTO_HEIGHT="$(sips -g pixelHeight "${PHOTO_FILENAME}" | grep "pixel" | tr -d " " | cut -d ":" -f 2)"
+	local HASH_BLAKE3="$(b3sum --no-names "${PHOTO_FILENAME}")"
+	# w_echo "RESOLUTION: ${PHOTO_WIDTH}x${PHOTO_HEIGHT}"
+	# w_echo "HASH_BLAKE3: ${HASH_BLAKE3}"
+
+	# Delete lor-res photos
+	if [[ ${OPT_FORCE_UHD} -eq 1 && ${PHOTO_WIDTH} -le 1920 ]] || \
+		 [[ ${OPT_FORCE_HD} -eq 1 && ${PHOTO_WIDTH} -lt 1920 ]]; then
+		w_echo "Skip due to insufficient resolution."
+		rm "${PHOTO_FILENAME}"
+		return
+	fi
+
+	# Change filename
+	local PHOTO_FILENAME2="${OUTPUT_DIR}/${PHOTO_DATE}_${GALLERY_ID}_${PHOTO_TITLE_SAFE}_${PHOTO_WIDTH}x${PHOTO_HEIGHT}.jpg"
+	mv "${PHOTO_FILENAME}" "${PHOTO_FILENAME2}"
+
+	if [[ ${OPT_DRY_RUN} ]]; then
+		rm "${PHOTO_FILENAME2}"
+	fi
+
+	# Insert into table
+	if [[ ! ${OPT_DRY_RUN} ]]; then
+		local RETCODE="255"
+		while [[ ${RETCODE} -ne 0 ]]; do
+			local SQL_INSERT="INSERT INTO bing_photos(site_id, gallery_id,  updated_date, title, photo_url, width, height, orig_filename, saved_filename, hash_blake3, detail_page, short_desc) VALUES ('${SITE_ID}', '${GALLERY_ID}', '${PHOTO_DATE}', '${PHOTO_TITLE}', '${PHOTO_FILE_URL}', '${PHOTO_WIDTH}', '${PHOTO_HEIGHT}', '${PHOTO_ORIG_FILENAME}', '${PHOTO_FILENAME2#"output/"}', '${HASH_BLAKE3}', '$(basename "${DETAIL_PAGE_URL}")', '${PHOTO_SHORT_DESC}')"
+			sqlite3 "${DB_FILE}" <<< "${SQL_INSERT}" 2>> "${ERROR_LOG_FILE}"
+			RETCODE=$?
+			if [[ ${RETCODE} -ne 0 ]]; then
+				echo "ERROR: ${PHOTO_DATE} ${GALLERY_ID} ${PHOTO_FILE_URL} DB insert error [code:${RES_INSERT}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+			fi
+		done
+	fi
+
+	(( DOWNLOADED_NUM++ ))
+	w_echo "Downloaded. ${PHOTO_WIDTH}x${PHOTO_HEIGHT} ${PHOTO_ORIG_FILENAME}"
+	# TODO: wait time should be changeable as an option.
+	sleep 1
+}
+
+function day_loop() {
+	local -a DETAIL_PAGE_LIST
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+	local DETAIL_PAGE_LIST=($@)
+	# Reverse the month order
+	for (( i=${#DETAIL_PAGE_LIST[@]} - 1; i >= 0; i-- )); do
+		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
+		local PAGE="${DETAIL_PAGE_LIST[i]}"
+		local L_PID
+		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${!}" || L_PID="${BASHPID}"
+		printf "PID#%7d / Total Attempts:%d / Gallery:%s/%d / %4d/%02d/%02d / Downloaded:%d\n" \
+		"${L_PID}" "${DL_NUM}" "$(basename "${CNT}" | tr '[:lower:]' '[:upper:]')" "${C_DL_NUM}" "${YEAR}" "${MONTH}" "$((i+1))" "${DOWNLOADED_NUM}"
+		if do_download "${PAGE}"; then
+			(( DL_NUM++ ))
+			(( C_DL_NUM++ ))
+		else
+			BREAK_TO_NEXT_GALLERY=1
+		fi
+		# Quit if shutdown flag had been set by safe_exit()
+		if [[ ${G_SHUTDOWN} ]]; then
+			echo "Quitting"
+			exit
+		fi
+		w_echo
+	done
+}
+
+function month_loop() {
+	local -a L_MONTHS DETAIL_PAGE_LIST
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+	local L_MONTHS=($@)
+
+	for MONTH in "${L_MONTHS[@]}"; do
+		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
+		h_rule -
+		w_echo "MONTH: $MONTH [${BASE_URL}${CNT}${YEAR}/${MONTH}]"
+		h_rule -
+		DETAIL_PAGE_LIST=()
+		DETAIL_PAGE_LIST=($(curl -s "${BASE_URL}${CNT}${YEAR}/${MONTH}" \
+			| grep "image-list__picture-link" \
+			| "${GNU_GREP_BIN}" -Po 'href=".+?"' \
+			| "${GNU_SED_BIN}" -e 's/href="\(.\+\)"/\1/g'))
+		#TODO: Check null
+		day_loop "${DETAIL_PAGE_LIST[@]}"
+	done
+
+}
+
+# Derived from https://sousaku-memo.net/php-system/2593
+# Count running jobs only
+function running_jobs_count() {
+  # -r は running のジョブだけを出力するオプション
+  jobs -r | wc -l
+}
+
+function year_loop() {
+	local YEAR MONTH BREAK_TO_NEXT_GALLERY
+	local -a L_MONTHS DETAIL_PAGE_LIST
+
+	BREAK_TO_NEXT_GALLERY=0
+	for YEAR in "${OPT_YEAR[@]}"; do
+		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
+		h_rule "-"
+		w_echo "YEAR: $YEAR"
+
+		if [[ ${YEAR} -eq $(date +'%Y') ]]; then
+			L_MONTHS=( $(printf "%02d " $(seq "$(date +'%m')" 1)) )
+		else
+			L_MONTHS=("${OPT_MONTH[@]}")
+		fi
+
+
+		if [[ ${OPT_CONCURRENT_MONTH} ]]; then
+			while (( $(running_jobs_count) >= MAX_CONCURRENT_JOBS )); do
+				sleep 1
+			done
+			month_loop "${L_MONTHS[@]}" &
+			C_PID+=($!)
+			sleep 1
+		else
+			month_loop "${L_MONTHS[@]}"
+		fi
+	done
+	if [[ ${OPT_CONCURRENT_MONTH} ]]; then
+		for PID in "${C_PID[@]}"; do
+			wait "${PID}"
+			RESULTS+=($?)
+		done
+		echo "Gallery:$(basename "${CNT}") Results:${RESULTS[*]}"
+	fi
+}
+
+show_help() {
+echo "Usage: $(basename "$0") [OPTION]..."
+    echo "Process the command-line options for the script."
+    echo
+    echo "Options:"
+	echo "  --concurrent-gallery	[BETA] Concurrent download(gallery)"
+	echo "  --concurrent-month		[BETA] Concurrent download(month)"
+    echo "  --dry-run				Perform a dry run without making any changes."
+    echo "  --force-all				Doesn't stop if it was already downloaded photo."
+    echo "  --uhd					Download UHD photos only."
+    echo "  --hd					Download HD and UHD photos only."
+    echo "  --spc-del				Replace spaces with delete action."
+    echo "  --spc-hyphen			Replace spaces with hyphens."
+    echo "  --spc-under				Replace spaces with underscores."
+	echo "  --resume-by-db			Resume download from last db record."
+    echo "  --help					Display this help and exit."
+    echo
+}
+
+function mangle_opstions {
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--concurrent-gallery )
+				OPT_CONCURRENT_GALLERY=1
+				echo "concurrent-gallery";;
+			--concurrent-month )
+				OPT_CONCURRENT_MONTH=1
+				echo "concurrent-month";;
+			--dry-run )
+				OPT_DRY_RUN=1
+				echo "dry-run";;
+			--force-all )
+				OPT_FORCE_ALL=1
+				echo "force-all";;
+			--uhd )
+				OPT_FORCE_UHD=1
+				echo "uhd";;
+			--hd )
+				OPT_FORCE_HD=1
+				echo "hd";;
+			--spc-del )
+				OPT_SPC_DELETE=1
+				echo "spc -> delete";;
+			--spc-hyphen )
+				OPT_SPC_TR_HYPHEN=1
+				echo "spc -> hyphen";;
+			--spc-under )
+				OPT_SPC_TR_UNDER=1
+				echo "spc -> under";;
+			--resume-by-db )
+				OPT_RESUME_BY_DB=1
+				echo "resume by db";;
+			--help )
+				show_help
+				exit;;
+			--gallery-all )
+				if ((! OPT_GAL_ALL)); then
+					OPT_CNT=("${C_JP}" "${C_US}" "${C_UK}" "${C_AU}" "${C_CA}" "${C_IN}" "${C_FR}" "${C_IT}" "${C_DE}" "${C_ES}" "${C_BR}" "${C_CN}")
+					OPT_GAL_ALL=1
+					echo "gallery-all"
+				fi;;
+			--gallery-jp )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_JP)); then
+					OPT_CNT+=("${C_JP}")
+					OPT_GAL_JP=1
+					echo "gallery-jp"
+				fi;;
+			--gallery-us )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_US)); then
+					OPT_CNT+=("${C_US}")
+					OPT_GAL_US=1
+					echo "gallery-us"
+				fi;;
+			--gallery-uk )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_UK)); then
+					OPT_CNT+=("${C_UK}")
+					OPT_GAL_UK=1
+					echo "gallery-uk"
+				fi;;
+			--gallery-au )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_AU)); then
+					OPT_CNT+=("${C_AU}")
+					OPT_GAL_AU=1
+					echo "gallery-au";
+				fi;;
+			--gallery-ca )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_CA)); then
+					OPT_CNT+=("${C_CA}")
+					OPT_GAL_CA=1
+					echo "gallery-ca";
+				fi;;
+			--gallery-in )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_IN)); then
+					OPT_CNT+=("${C_IN}")
+					OPT_GAL_IN=1
+					echo "gallery-in";
+				fi;;
+			--gallery-fr )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_FR)); then
+					OPT_CNT+=("${C_FR}")
+					OPT_GAL_FR=1
+					echo "gallery-fr";
+				fi;;
+			--gallery-it )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_IT)); then
+					OPT_CNT+=("${C_IT}")
+					OPT_GAL_IT=1
+					echo "gallery-it"
+				fi;;
+			--gallery-de )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_DE)); then
+					OPT_CNT+=("${C_DE}")
+					OPT_GAL_DE=1
+					echo "gallery-de"
+				fi;;
+			--gallery-es )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_ES)); then
+					OPT_CNT+=("${C_ES}")
+					OPT_GAL_ES=1
+					echo "gallery-es"
+				fi;;
+			--gallery-br )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_BR)); then
+					OPT_CNT+=("${C_BR}")
+					OPT_GAL_BR=1
+					echo "gallery-br"
+				fi;;
+			--gallery-cn )
+				if ((! OPT_GAL_ALL && ! OPT_GAL_CN)); then
+					OPT_CNT+=("${C_CN}")
+					OPT_GAL_CN=1
+					echo "gallery-cn"
+				fi;;
+		esac
+		shift
+	done
+}
+
+function gallery_loop {
+	for CNT in "${OPT_CNT[@]}"; do
+		h_rule "="
+		echo -n "Gallery: "
+		case "${CNT}" in
+			"${C_JP}")	echo "Japan";;
+			"${C_US}")	echo "United States";;
+			"${C_UK}")	echo "United Kingdom";;
+			"${C_AU}")	echo "Australia";;
+			"${C_CA}")	echo "Canada";;
+			"${C_IN}")	echo "India";;
+			"${C_FR}")	echo "France";;
+			"${C_IT}")	echo "Italia";;
+			"${C_DE}")	echo "Germany";;
+			"${C_ES}")	echo "Spain";;
+			"${C_BR}")	echo "Brasil";;
+			"${C_CN}")	echo "China";;
+			* )			echo "Country: $CNT";;
+		esac
+
+		C_DL_NUM=1
+		if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
+			year_loop&
+			C_PID+=($!)
+			sleep 60
+		else
+			year_loop
+		fi
+	done
+
+	# Wait for all the child processes to complete
+	if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
+		for PID in "${C_PID[@]}"; do
+			wait "${PID}"
+			RESULTS+=($?)
+		done
+	echo "RESULTS: ${RESULTS[*]}"
+	fi
+
+}
+
+##### Entry point
+SITE_ID="peapix"
+BASE_URL="https://peapix.com"
+
+# Galleries
+C_GEN="/bing/"; C_AU="/bing/au/"; C_CA="/bing/ca/"; C_CN="/bing/cn/"; C_DE="/bing/de/"
+C_FR="/bing/fr/"; C_IN="/bing/in/"; C_JP="/bing/jp/"; C_ES="/bing/es/"; C_UK="/bing/gb/"
+C_US="/bing/us/"; C_IT="/bing/it/"; C_BR="/bing/br/";
+
+# Galleries to visit
+declare -a OPT_CNT
+
+# Year and months to check
+# The latest to the oldest
+OPT_YEAR=( $(seq "$(date +'%Y')" 2010) )
+OPT_MONTH=(12 11 10 09 08 07 06 05 04 03 02 01)
+
+# Misc variables
+DL_NUM=1
+DOWNLOADED_NUM=0
+
+trap safe_exit SIGINT
+# trap 'kill ${BG_PID}' EXIT
+check_required_software
+
+mangle_opstions "$@"
+
+# wait_for_key &
+# BG_PID=${!}
+# echo "BG_PID=${BG_PID}"
+
+if ! check_table_existence "bing_photos"; then
+	echo "Creating DB."
+	create_table
+fi
+
+gallery_loop
+
