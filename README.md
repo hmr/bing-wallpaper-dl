@@ -1,5 +1,5 @@
-# bing-wallpaper-dl
-Small scripts to download Bing's image of the day or Unsplash wallpaper collection.
+# wallpaper-downloaders
+Small scripts to download wallpaper collections.
 
 ## Usage
 
@@ -9,7 +9,7 @@ Clone this repository `git clone https://github.com/hmr/bing-wallpaper-dl.git`
 ### For bing wallpaper
 - cd to bing directory `cd bing`
 - mkdir output directory `mkdir output`
-- execute `./bing-wallpaper-dl2`
+- execute `./bing-wallpaper-dl_peapix --help`
 
 ### For unsplash wallpaper
 - cd to unsplash directory `cd unsplash`
@@ -21,4 +21,6 @@ Clone this repository `git clone https://github.com/hmr/bing-wallpaper-dl.git`
 Any unix/linux/macOS with following softwares installed.
 - bash
 - curl
+- GNU grep
+- GNU sed
 - jq (unsplash only)
