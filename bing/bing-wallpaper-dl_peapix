@@ -394,8 +394,10 @@ echo "Usage: $(basename "$0") [OPTION]..."
     echo "Process the command-line options for the script."
     echo
     echo "Options:"
-	echo "  --concurrent-gallery	[BETA] Concurrent download(gallery)"
-	echo "  --concurrent-month		[BETA] Concurrent download(month)"
+	echo "  --concurrent-gallery	[BETA] Parallel download for galleries."
+	echo "  --concurrent-month		[BETA] Parallel download for months."
+	echo "  --gallery-<CN>			Download wallpapers from these galleries."
+	echo "							CN:all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn"
     echo "  --dry-run				Perform a dry run without making any changes."
     echo "  --force-all				Doesn't stop if it was already downloaded photo."
     echo "  --uhd					Download UHD photos only."
@@ -448,83 +450,102 @@ function mangle_opstions {
 				if ((! OPT_GAL_ALL)); then
 					OPT_CNT=("${C_JP}" "${C_US}" "${C_UK}" "${C_AU}" "${C_CA}" "${C_IN}" "${C_FR}" "${C_IT}" "${C_DE}" "${C_ES}" "${C_BR}" "${C_CN}")
 					OPT_GAL_ALL=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-all"
 				fi;;
 			--gallery-jp )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_JP)); then
 					OPT_CNT+=("${C_JP}")
 					OPT_GAL_JP=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-jp"
 				fi;;
 			--gallery-us )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_US)); then
 					OPT_CNT+=("${C_US}")
 					OPT_GAL_US=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-us"
 				fi;;
 			--gallery-uk )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_UK)); then
 					OPT_CNT+=("${C_UK}")
 					OPT_GAL_UK=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-uk"
 				fi;;
 			--gallery-au )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_AU)); then
 					OPT_CNT+=("${C_AU}")
 					OPT_GAL_AU=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-au";
 				fi;;
 			--gallery-ca )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_CA)); then
 					OPT_CNT+=("${C_CA}")
 					OPT_GAL_CA=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-ca";
 				fi;;
 			--gallery-in )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_IN)); then
 					OPT_CNT+=("${C_IN}")
 					OPT_GAL_IN=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-in";
 				fi;;
 			--gallery-fr )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_FR)); then
 					OPT_CNT+=("${C_FR}")
 					OPT_GAL_FR=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-fr";
 				fi;;
 			--gallery-it )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_IT)); then
 					OPT_CNT+=("${C_IT}")
 					OPT_GAL_IT=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-it"
 				fi;;
 			--gallery-de )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_DE)); then
 					OPT_CNT+=("${C_DE}")
 					OPT_GAL_DE=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-de"
 				fi;;
 			--gallery-es )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_ES)); then
 					OPT_CNT+=("${C_ES}")
 					OPT_GAL_ES=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-es"
 				fi;;
 			--gallery-br )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_BR)); then
 					OPT_CNT+=("${C_BR}")
 					OPT_GAL_BR=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-br"
 				fi;;
 			--gallery-cn )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_CN)); then
 					OPT_CNT+=("${C_CN}")
 					OPT_GAL_CN=1
+					GALLERY_ASSIGNED=1
 					echo "gallery-cn"
 				fi;;
 		esac
 		shift
 	done
+	if (( ! GALLERY_ASSIGNED )); then
+		OPT_CNT=("${C_JP}" "${C_US}" "${C_UK}" "${C_AU}" "${C_CA}" "${C_IN}" "${C_FR}" "${C_IT}" "${C_DE}" "${C_ES}" "${C_BR}" "${C_CN}")
+		OPT_GAL_ALL=1
+		GALLERY_ASSIGNED=1
+		echo "gallery-all selected implicitly"
+	fi
 }
 
 function gallery_loop {
