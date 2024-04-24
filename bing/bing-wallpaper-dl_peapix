@@ -11,7 +11,7 @@
 # AUTHOR: hmr
 # ORIGIN: 2024-03-25T22:03:23
 
-MAX_CONCURRENT_JOBS=4
+OPT_MAX_CONCURRENCY=4
 
 # TODO: Output directory should be changeable as an option.
 OUTPUT_DIR="output"
@@ -26,6 +26,7 @@ function safe_exit() {
 	G_SHUTDOWN=1
 }
 
+# Experimental function for key input during downloading
 function wait_for_key() {
 	local keyin
 	while true; do
@@ -78,7 +79,7 @@ function h_rule() {
 	echo
 }
 
-create_table() {
+function create_table() {
 	local SQL="
 	create table if not exists mst_site (
 		site_id text primary key,
@@ -116,7 +117,7 @@ create_table() {
 	fi
 }
 
-check_table_existence() {
+function check_table_existence() {
     local table_name="$1"
 
     local query="SELECT name FROM sqlite_master WHERE type='table' AND name='$table_name';"
@@ -129,7 +130,7 @@ check_table_existence() {
     fi
 }
 
-function check_db_detail_page(){
+function check_db_detail_page() {
 	if [[ ${#} -lt 1 ]]; then
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
@@ -153,7 +154,7 @@ function check_db_detail_page(){
 	return "$RECORDS"
 }
 
-function check_db_filename(){
+function check_db_filename() {
 	if [[ ${#} -lt 1 ]]; then
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
@@ -177,7 +178,7 @@ function check_db_filename(){
 	return "$RECORDS"
 }
 
-function do_download(){
+function do_download() {
 	if [[ ${#} -lt 1 ]]; then
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
@@ -370,7 +371,7 @@ function year_loop() {
 
 
 		if [[ ${OPT_CONCURRENT_MONTH} ]]; then
-			while (( $(running_jobs_count) >= MAX_CONCURRENT_JOBS )); do
+			while (( $(running_jobs_count) >= OPT_MAX_CONCURRENCY )); do
 				sleep 1
 			done
 			month_loop "${L_MONTHS[@]}" &
@@ -389,24 +390,25 @@ function year_loop() {
 	fi
 }
 
-show_help() {
+function show_help() {
 echo "Usage: $(basename "$0") [OPTION]..."
     echo "Process the command-line options for the script."
     echo
     echo "Options:"
-	echo "  --concurrent-gallery	[BETA] Parallel download for galleries."
-	echo "  --concurrent-month		[BETA] Parallel download for months."
-	echo "  --gallery-<CN>			Download wallpapers from these galleries."
-	echo "							CN:all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn"
-    echo "  --dry-run				Perform a dry run without making any changes."
-    echo "  --force-all				Doesn't stop if it was already downloaded photo."
-    echo "  --uhd					Download UHD photos only."
-    echo "  --hd					Download HD and UHD photos only."
-    echo "  --spc-del				Replace spaces with delete action."
-    echo "  --spc-hyphen			Replace spaces with hyphens."
-    echo "  --spc-under				Replace spaces with underscores."
-	echo "  --resume-by-db			Resume download from last db record."
-    echo "  --help					Display this help and exit."
+	echo "  --concurrent-gallery    [BETA] Parallel download for galleries."
+	echo "  --concurrent-month      [BETA] Parallel download for months."
+	echo "  --concurrency           [BETA] Maximum number of concurrent processes. [default: 4]"
+	echo "  --gallery-<CN>          Download wallpapers from these galleries. [default: all]"
+	echo "                          CN: all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn"
+    echo "  --dry-run               Perform a dry run without making any changes."
+    echo "  --force-all             Doesn't stop if it was already downloaded photo."
+    echo "  --uhd                   Download UHD photos only."
+    echo "  --hd                    Download HD and UHD photos only."
+    echo "  --spc-del               Replace spaces with delete action."
+    echo "  --spc-hyphen            Replace spaces with hyphens."
+    echo "  --spc-under             Replace spaces with underscores."
+	echo "  --resume-by-db          Resume download from last db record."
+    echo "  --help                  Display this help and exit."
     echo
 }
 
@@ -419,6 +421,15 @@ function mangle_opstions {
 			--concurrent-month )
 				OPT_CONCURRENT_MONTH=1
 				echo "concurrent-month";;
+			--concurrency )
+				if [[ $2 =~ ^[0-9]+$ ]]; then
+					OPT_MAX_CONCURRENCY=$2
+					echo "concurrency ${OPT_MAX_CONCURRENCY}"
+					shift
+				else
+					echo "ERROR: concurrency: numerical value must be specified."
+					exit 1
+				fi;;
 			--dry-run )
 				OPT_DRY_RUN=1
 				echo "dry-run";;
@@ -537,6 +548,9 @@ function mangle_opstions {
 					GALLERY_ASSIGNED=1
 					echo "gallery-cn"
 				fi;;
+			* )
+				echo "ERROR: not supported option $1"
+				exit 1;;
 		esac
 		shift
 	done
@@ -548,7 +562,7 @@ function mangle_opstions {
 	fi
 }
 
-function gallery_loop {
+function gallery_loop() {
 	for CNT in "${OPT_CNT[@]}"; do
 		h_rule "="
 		echo -n "Gallery: "
@@ -586,7 +600,6 @@ function gallery_loop {
 		done
 	echo "RESULTS: ${RESULTS[*]}"
 	fi
-
 }
 
 ##### Entry point
@@ -598,9 +611,6 @@ C_GEN="/bing/"; C_AU="/bing/au/"; C_CA="/bing/ca/"; C_CN="/bing/cn/"; C_DE="/bin
 C_FR="/bing/fr/"; C_IN="/bing/in/"; C_JP="/bing/jp/"; C_ES="/bing/es/"; C_UK="/bing/gb/"
 C_US="/bing/us/"; C_IT="/bing/it/"; C_BR="/bing/br/";
 
-# Galleries to visit
-declare -a OPT_CNT
-
 # Year and months to check
 # The latest to the oldest
 OPT_YEAR=( $(seq "$(date +'%Y')" 2010) )
@@ -609,6 +619,9 @@ OPT_MONTH=(12 11 10 09 08 07 06 05 04 03 02 01)
 # Misc variables
 DL_NUM=1
 DOWNLOADED_NUM=0
+
+# Galleries to visit
+declare -a OPT_CNT
 
 trap safe_exit SIGINT
 # trap 'kill ${BG_PID}' EXIT
