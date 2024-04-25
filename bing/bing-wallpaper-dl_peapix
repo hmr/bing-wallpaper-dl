@@ -1,4 +1,4 @@
-#! /usr/bin/env bash
+#!/usr/bin/env bash
 #
 # vim: set noet syn=bash ft=sh ff=unix fenc=utf-8 ts=4 sw=0 : # GPP default modeline for shell script
 # shellcheck shell=bash disable=SC1091,SC3010,SC3021,SC3037 source=${GPP_HOME}
@@ -258,8 +258,9 @@ function do_download() {
 	# w_echo "HASH_BLAKE3: ${HASH_BLAKE3}"
 
 	# Delete lor-res photos
-	if [[ ${OPT_FORCE_UHD} -eq 1 && ${PHOTO_WIDTH} -le 1920 ]] || \
-		 [[ ${OPT_FORCE_HD} -eq 1 && ${PHOTO_WIDTH} -lt 1920 ]]; then
+	if [[ ${OPT_FORCE_HD_PLUS} -eq 1 && ${PHOTO_WIDTH} -le 1920 ]] || \
+		 [[ ${OPT_FORCE_HD} -eq 1 && ${PHOTO_WIDTH} -lt 1920 ]] || \
+		 [[ ${OPT_FORCE_WQHD} -eq 1 && ${PHOTO_WIDTH} -lt 2560 ]]; then
 		w_echo "Skip due to insufficient resolution."
 		rm "${PHOTO_FILENAME}"
 		return
@@ -305,7 +306,7 @@ function day_loop() {
 		local PAGE="${DETAIL_PAGE_LIST[i]}"
 		local L_PID
 		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${!}" || L_PID="${BASHPID}"
-		printf "PID#%7d / Total Attempts:%d / Gallery:%s/%d / %4d/%02d/%02d / Downloaded:%d\n" \
+		printf "PID#%7d / Total Attempts:%d / Gallery:%s/%d / %s/%s/%02d / Downloaded:%d\n" \
 		"${L_PID}" "${DL_NUM}" "$(basename "${CNT}" | tr '[:lower:]' '[:upper:]')" "${C_DL_NUM}" "${YEAR}" "${MONTH}" "$((i+1))" "${DOWNLOADED_NUM}"
 		if do_download "${PAGE}"; then
 			(( DL_NUM++ ))
@@ -402,8 +403,9 @@ echo "Usage: $(basename "$0") [OPTION]..."
 	echo "                          CN: all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn"
     echo "  --dry-run               Perform a dry run without making any changes."
     echo "  --force-all             Doesn't stop if it was already downloaded photo."
-    echo "  --uhd                   Download UHD photos only."
-    echo "  --hd                    Download HD and UHD photos only."
+    echo "  --hd                    Download only wallpapers with HD or higher resolution."
+    echo "  --hd-plus               Download only wallpapers with larger-than-HD resolution."
+	echo "  --wqhd                  Download only wallpapers with WQHD or larger resplution."
     echo "  --spc-del               Replace spaces with delete action."
     echo "  --spc-hyphen            Replace spaces with hyphens."
     echo "  --spc-under             Replace spaces with underscores."
@@ -436,12 +438,15 @@ function mangle_opstions {
 			--force-all )
 				OPT_FORCE_ALL=1
 				echo "force-all";;
-			--uhd )
-				OPT_FORCE_UHD=1
-				echo "uhd";;
+			--hd-plus )
+				OPT_FORCE_HD_PLUS=1
+				echo "hd-plus";;
 			--hd )
 				OPT_FORCE_HD=1
 				echo "hd";;
+			--wqhd )
+				OPT_FORCE_WQHD=1
+				echo "wqhd";;
 			--spc-del )
 				OPT_SPC_DELETE=1
 				echo "spc -> delete";;
