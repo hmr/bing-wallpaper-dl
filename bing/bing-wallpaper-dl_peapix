@@ -63,6 +63,27 @@ function check_required_software() {
 	fi
 }
 
+function do_enable() {
+	[[ $# -ne 1 ]] && return
+	local MODULE=$1
+
+	if enable -f "${MODULE}" "${MODULE}" >& /dev/null; then
+		echo "enabled builtin ${MODULE}"
+		return 0
+	fi
+	return 1
+}
+
+# Experimental function to enable alternative built-in command
+function enable_loadables () {
+	do_enable basename
+	# do_enable cat
+	# do_enable necho
+	do_enable rm
+	do_enable seq
+	# do_enable sleep
+}
+
 function w_echo() {
 	(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && return
 	echo "${@}"
@@ -631,6 +652,7 @@ declare -a OPT_CNT
 trap safe_exit SIGINT
 # trap 'kill ${BG_PID}' EXIT
 check_required_software
+enable_loadables
 
 mangle_opstions "$@"
 
