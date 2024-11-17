@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 #
 # vim: set noet syn=bash ft=sh ff=unix fenc=utf-8 ts=4 sw=0 : # GPP default modeline for shell script
-# shellcheck shell=bash disable=SC1091,SC3010,SC3021,SC3037 source=${GPP_HOME}
-# shellcheck shell=bash disable=SC2155
-# shellcheck shell=bash disable=SC2207
+# shellcheck shell=bash disable=SC1091,SC2207,SC2155,SC3010,SC3021,SC3037
 #
 # bing-wallpaper-dl.bash
 # Download wallpapers from Bing Wallpaper Gallery(https://peapix.com)
