@@ -98,13 +98,15 @@ function h_rule() {
 	echo
 }
 
+# Create blank database.
+# Args: None
 function create_table() {
 	local SQL="
 	create table if not exists mst_site (
-		site_id text primary key,
-		site_name text,
-		bing_country text,
-		site_url text
+		site_id         text    primary key,
+		site_name       text,
+		bing_country    text,
+		site_url        text
 	);"
 
 	if ! sqlite3 "${DB_FILE}" "${SQL}"; then
@@ -114,20 +116,20 @@ function create_table() {
 
 	SQL="
 	create table if not exists bing_photos (
-		id		integer	primary key,
-		site_id		text		not null,
-		gallery_id	text		not null,
-		updated_date	text		not null,
-		title		text		not null,
-		photo_url	text		not null,
-		width		integer,
-		height		integer,
-		orig_filename	text		not null,
-		saved_filename	text		not null,
-		hash_blake3	text,
-		detail_page	integer		not null,
-		short_desc	text,
-		long_desc	text
+		id              integer     primary key,
+		site_id         text        not null,
+		gallery_id      text        not null,
+		updated_date    text        not null,
+		title           text        not null,
+		photo_url       text        not null,
+		width           integer,
+		height          integer,
+		orig_filename   text        not null,
+		saved_filename  text        not null,
+		hash_blake3     text,
+		detail_page     integer     not null,
+		short_desc      text,
+		long_desc       text
 	);"
 
 	if ! sqlite3 "${DB_FILE}" "${SQL}"; then
