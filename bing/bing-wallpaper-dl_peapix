@@ -62,8 +62,8 @@ function check_required_software() {
 }
 
 function do_enable() {
-	[[ $# -ne 1 ]] && return
-	local MODULE=$1
+	[[ ${#} -ne 1 ]] && return
+	local MODULE=${1}
 
 	if enable -f "${MODULE}" "${MODULE}" >& /dev/null; then
 		echo "enabled builtin ${MODULE}"
@@ -154,8 +154,8 @@ function check_db_detail_page() {
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
 	fi
-	local D_PAGE="$(basename "$1")"
-	local SQL_SELECT="SELECT COUNT(1) FROM bing_photos where detail_page='${D_PAGE}'"
+	local D_PAGE="$(basename "${1}")"
+	local SQL_SELECT="SELECT COUNT(1) FROM bing_photos WHERE detail_page='${D_PAGE}'"
 	local RECORDS=0
 	local RETCODE="255"
 	while [[ ${RETCODE} -ne 0 ]]; do
@@ -178,8 +178,8 @@ function check_db_filename() {
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
 	fi
-	local PHOTO_ORIG_FILENAME=$1
-	local SQL_SELECT="SELECT COUNT(1) FROM bing_photos where orig_filename='${PHOTO_ORIG_FILENAME}'"
+	local PHOTO_ORIG_FILENAME=${1}
+	local SQL_SELECT="SELECT COUNT(1) FROM bing_photos WHERE orig_filename='${PHOTO_ORIG_FILENAME}'"
 	local RECORDS=0
 	local RETCODE="255"
 	while [[ ${RETCODE} -ne 0 ]]; do
@@ -318,7 +318,7 @@ function day_loop() {
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
 	fi
-	local DETAIL_PAGE_LIST=($@)
+	local DETAIL_PAGE_LIST=("$@")
 	# Reverse the month order
 	for (( i=${#DETAIL_PAGE_LIST[@]} - 1; i >= 0; i-- )); do
 		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
@@ -348,7 +348,7 @@ function month_loop() {
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
 	fi
-	local L_MONTHS=($@)
+	local L_MONTHS=("$@")
 
 	for MONTH in "${L_MONTHS[@]}"; do
 		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
@@ -436,6 +436,8 @@ echo "Usage: $(basename "$0") [OPTION]..."
 function mangle_opstions {
 	while [[ $# -gt 0 ]]; do
 		case "$1" in
+	while [[ ${#} -gt 0 ]]; do
+		case "${1}" in
 			--concurrent-gallery )
 				OPT_CONCURRENT_GALLERY=1
 				echo "concurrent-gallery";;
@@ -443,8 +445,8 @@ function mangle_opstions {
 				OPT_CONCURRENT_MONTH=1
 				echo "concurrent-month";;
 			--concurrency )
-				if [[ $2 =~ ^[0-9]+$ ]]; then
-					OPT_MAX_CONCURRENCY=$2
+				if [[ ${2} =~ ^[0-9]+$ ]]; then
+					OPT_MAX_CONCURRENCY=${2}
 					echo "concurrency ${OPT_MAX_CONCURRENCY}"
 					shift
 				else
@@ -573,7 +575,7 @@ function mangle_opstions {
 					echo "gallery-cn"
 				fi;;
 			* )
-				echo "ERROR: not supported option $1"
+				echo "ERROR: not supported option ${1}"
 				exit 1;;
 		esac
 		shift
