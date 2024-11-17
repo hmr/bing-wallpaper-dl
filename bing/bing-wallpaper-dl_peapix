@@ -325,11 +325,13 @@ function do_download() {
 	mv "${PHOTO_FILENAME}" "${PHOTO_FILENAME2}"
 
 	if [[ ${OPT_DRY_RUN} ]]; then
+		# Do if dry run
 		rm "${PHOTO_FILENAME2}"
 	fi
 
 	# Insert into table
 	if [[ ! ${OPT_DRY_RUN} ]]; then
+		# NOT do if dry run
 		local RETCODE="255"
 		while [[ ${RETCODE} -ne 0 ]]; do
 			local SQL_INSERT="INSERT INTO bing_photos(site_id, gallery_id,  updated_date, title, photo_url, width, height, orig_filename, saved_filename, hash_blake3, detail_page, short_desc) VALUES ('${SITE_ID}', '${GALLERY_ID}', '${PHOTO_DATE}', '${PHOTO_TITLE}', '${PHOTO_FILE_URL}', '${PHOTO_WIDTH}', '${PHOTO_HEIGHT}', '${PHOTO_ORIG_FILENAME}', '${PHOTO_FILENAME2#"output/"}', '${HASH_BLAKE3}', '$(basename "${DETAIL_PAGE_URL}")', '${PHOTO_SHORT_DESC}')"
