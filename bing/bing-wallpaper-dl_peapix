@@ -84,11 +84,15 @@ function enable_loadables () {
 	# do_enable sleep
 }
 
+# Print a message but skip id concurrent run is set.
+# Args: ${1}: A message to print.
 function w_echo() {
 	(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && return
 	echo "${@}"
 }
 
+# Print horizontal line.
+# Args: None
 function h_rule() {
 	(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && return
 
@@ -140,6 +144,11 @@ function create_table() {
 	fi
 }
 
+# Check the existence of the table.
+# Args: ${1}: Name of the table.
+# Retval:
+#	0: OK(exist)
+#	1: NG(not exist)
 function check_table_existence() {
     local table_name="$1"
 
@@ -153,6 +162,9 @@ function check_table_existence() {
     fi
 }
 
+# Check the database for URL of detail pages.
+# Args: ${1}: URL of detail page of the photo.
+# Retval: 0-255: Number of records.
 function check_db_detail_page() {
 	if [[ ${#} -lt 1 ]]; then
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
@@ -177,6 +189,9 @@ function check_db_detail_page() {
 	return "$RECORDS"
 }
 
+# Check the database for filenames that have already been downloaded.
+# Args: ${1}: Original filename of the photo.
+# Retval: 0-255: Number of records.
 function check_db_filename() {
 	if [[ ${#} -lt 1 ]]; then
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
@@ -316,6 +331,8 @@ function do_download() {
 	sleep 1
 }
 
+# Invoke do_download() to download daily images.
+# Args: List of detail pages of photo.
 function day_loop() {
 	local -a DETAIL_PAGE_LIST
 	if [[ ${#} -lt 1 ]]; then
@@ -346,6 +363,8 @@ function day_loop() {
 	done
 }
 
+# Invoke day_loop() for each month.
+# Args: List of months to process.
 function month_loop() {
 	local -a L_MONTHS DETAIL_PAGE_LIST
 	if [[ ${#} -lt 1 ]]; then
