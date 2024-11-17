@@ -108,7 +108,7 @@ function w_echo() {
 function h_rule() {
 	(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && return
 
-	local RULE=$1 COLS=$(tput cols)
+	local RULE=${1} COLS=$(tput cols)
 	for ((i=0; i<(COLS - 5 ); i++))
 	do
 		echo -n "${RULE:==}"
