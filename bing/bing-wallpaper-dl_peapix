@@ -35,6 +35,8 @@ function wait_for_key() {
 	done
 }
 
+# Check that required softwares are installed?
+# Args: None
 function check_required_software() {
 	# GNU Grep is required to use '-P' option.
 	if type ggrep > /dev/null; then
