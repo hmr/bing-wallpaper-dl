@@ -349,6 +349,14 @@ function do_download() {
 	sleep 1
 }
 
+# Derived from https://sousaku-memo.net/php-system/2593
+# Count running jobs only
+# Args: none
+function running_jobs_count() {
+  # -r は running のジョブだけを出力するオプション
+  jobs -r | wc -l
+}
+
 # Invoke do_download() to download daily images.
 # Args: List of detail pages of photo.
 function day_loop() {
@@ -407,11 +415,6 @@ function month_loop() {
 
 }
 
-# Derived from https://sousaku-memo.net/php-system/2593
-# Count running jobs only
-function running_jobs_count() {
-  # -r は running のジョブだけを出力するオプション
-  jobs -r | wc -l
 }
 
 function year_loop() {
