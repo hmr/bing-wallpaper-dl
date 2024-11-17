@@ -61,6 +61,18 @@ function check_required_software() {
 		echo "This program requires GNU sed."
 		exit 1
 	fi
+
+	# GNU date is required for convert date to epoch.
+	if type gdate > /dev/null; then
+		echo "Using gdate as GNU date."
+		GNU_DATE_BIN="gdate"
+	elif date --version 2>&1 | grep -q "GNU coreutils"; then
+		echo "Using date as GNU date."
+		GNU_DATE_BIN="date"
+	else
+		echo "This program requires GNU coreutils' date."
+		exit 1
+	fi
 }
 
 function do_enable() {
