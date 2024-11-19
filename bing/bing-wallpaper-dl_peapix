@@ -329,7 +329,7 @@ function do_download() {
 
 	# Duplication check #1 (Check existence of DETAIL_PAGE_URL from DB)
 	if ! check_db_detail_page "${DETAIL_PAGE_URL}"; then
-		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1 # Ignore if '--forca-all' specified
+		[[ ${OPT_IGNORE_URL_CHECK} ]] && return 0 || return 1 # Ignore if '--forca-all' specified
 	fi
 
 	# Get photo detail data
@@ -343,7 +343,7 @@ function do_download() {
 
 	# Duplication check #2 (Check existence of PHOTO_ORIG_FILENAME from DB)
 	if ! check_db_filename "${PHOTO_ORIG_FILENAME}"; then
-		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1 # Ignore if '--forca-all' specified
+		[[ ${OPT_IGNORE_URL_CHECK} ]] && return 0 || return 1 # Ignore if '--forca-all' specified
 	fi
 
 	# Do download until success
@@ -701,9 +701,9 @@ function mangle_options {
 			--dry-run )
 				OPT_DRY_RUN=1
 				echo "dry-run";;
-			--force-all )
-				OPT_FORCE_ALL=1
-				echo "force-all";;
+			--ignore-url-check )
+				OPT_IGNORE_URL_CHECK=1
+				echo "ignore-url-check";;
 			--hd-plus )
 				OPT_FORCE_HD_PLUS=1
 				echo "hd-plus";;
