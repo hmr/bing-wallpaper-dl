@@ -625,37 +625,47 @@ function gallery_loop() {
 }
 
 function show_help() {
-echo "Usage: $(basename "$0") [OPTION]..."
-    echo "Process the command-line options for the script."
-    echo
-    echo "Options:"
-	# echo "  --concurrent-gallery    [BETA] Parallel download for galleries. CURRENTLY NOT RECOMMENDED."
-	echo "  --concurrent-month      [BETA] Parallel download for months."
-	echo "  --concurrency <n>       [BETA] Maximum number of concurrent processes. [default: 4]"
-	echo
-	echo "  --gallery-<CN>          Download wallpapers from these galleries. [default: all]"
-	echo "                          CN: all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn"
-	echo
-    echo "  --force-all             Doesn't stop if it was already downloaded photo."
-	echo "  --resume-by-db          Resume download from last db record."
-	echo "  --start-from yyyy-mm-dd Start to download from this date. [default: today's date]"
-	echo "  --end-at yyyy-mm-dd     End to download at thid date. [default: 2010-01-01]"
-	echo "                          (*) This program downloads wallpapers backwards in time."
-	echo "                              Therefore, the start date must be in the future rather than"
-	echo "                              the end date."
-	echo "  --auto-last             Download until last downloaded date for each gallery."
-	echo
-    echo "  --hd                    Download only wallpapers with HD or higher resolution."
-    echo "  --hd-plus               Download only wallpapers with larger-than-HD resolution."
-	echo "  --wqhd                  Download only wallpapers with WQHD or larger resplution."
-	echo
-    echo "  --spc-del               Replace spaces with delete action."
-    echo "  --spc-hyphen            Replace spaces with hyphens."
-    echo "  --spc-under             Replace spaces with underscores."
-	echo
-    echo "  --dry-run               Perform a dry run without making any changes."
-    echo "  --help                  Display this help and exit."
-    echo
+	cat << __END_OF_HELP__
+
+Usage: $(basename "$0") [OPTIONS]...
+Process the command-line options for the script.
+
+[OPTIONS]
+  --concurrent-gallery      [BETA] Parallel download for galleries. CURRENTLY NOT RECOMMENDED.
+  --concurrent-month        [BETA] Parallel download for months.
+  --concurrency <n>         [BETA] Maximum number of concurrent processes. [default: 4]
+
+  --gallery-<CN>            Download wallpapers from these galleries. [default: all]
+                            CN: all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn
+
+  --ignore-url-check        Doesn't stop if it was already downloaded photo.
+  --auto-resume             Download from today to last downloaded date for each gallery.
+  --start-from <yyyy-mm-dd> Start to download from this date. [default: today's date]
+  --end-at <yyyy-mm-dd>     End to download at thid date. [default: 2010-01-01]
+                            (*) This program downloads wallpapers backwards in time.
+                            Therefore, the start date must be in the future rather than
+                            the end date."
+
+  --hd                      Download only wallpapers with HD or higher resolution.
+  --hd-plus                 Download only wallpapers with larger-than-HD resolution.
+  --wqhd                    Download only wallpapers with WQHD or larger resplution.
+
+  --spc-del                 Replace spaces with delete action.
+  --spc-hyphen              Replace spaces with hyphens.
+  --spc-under               Replace spaces with underscores.
+
+  --dry-run                 Perform a dry run without making any changes.
+  --help                    Display this help and exit.
+
+[Practical Usage]
+  - First time execution
+    $ ./bing-wallpaper-dl_peapix --gallery-all --concurrent-month --ignore-url-check
+
+  - Second time and later
+    $ ./bing-wallpaper-dl_peapix --gallery-all --concurrent-month --auto-resume --ignore-url-check
+
+
+__END_OF_HELP__
 }
 
 function mangle_options {
