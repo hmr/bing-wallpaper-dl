@@ -663,8 +663,6 @@ Process the command-line options for the script.
 
   - Second time and later
     $ ./bing-wallpaper-dl_peapix --gallery-all --concurrent-month --auto-resume --ignore-url-check
-
-
 __END_OF_HELP__
 }
 
