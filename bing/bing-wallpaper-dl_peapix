@@ -73,6 +73,15 @@ function check_required_software() {
 		echo "This program requires GNU coreutils' date."
 		exit 1
 	fi
+
+	# sips(macOS) or identify(ImageMagick)
+	if type sips > /dev/null && sips --version | grep -q "sips"; then
+		echo "Using sips as image manipulator"
+		IMG_MANIP="sips"
+	elif type identify > /dev/null; then
+		echo "Using identify as image manipulator"
+		IMG_MANIP="identify"
+	fi
 }
 
 function do_enable() {
@@ -178,6 +187,42 @@ function check_table_existence() {
     fi
 }
 
+# Returns count of records which have same hash value
+# Args: 1: blake3_hash
+function get_count_hash_duplicated() {
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+    local hash_blake3="${1}"
+
+	local query="SELECT count(1) FROM bing_photos WHERE hash_blake3='${hash_blake3}'"
+	local count="$(sqlite3 "${DB_FILE}" "${query}")" \
+		|| { echo "ERROR: sqlite3 error $? at ${FUNCNAME[0]}()"; exit 1;}
+
+	echo "${count}"
+}
+
+# Returns the latest updated_date by gallery
+# Args: ${1}: gallery id
+function get_last_downloaded_by_gallery() {
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+	local gallery_id="$(basename "${CNT}")"
+	local query="SELECT max(updated_date) FROM bing_photos WHERE gallery_id='${gallery_id}' GROUP BY gallery_id"
+	local updated_date=$(sqlite3 "${DB_FILE}" "${query}") \
+		|| { echo "ERROR: sqlite3 error $? at ${FUNCNAME[0]}()"; exit 1;}
+	if [[ -z ${updated_date} ]]; then
+		echo "ERROR: Can't get updated_date from DB at ${FUNCNAME[0]}()"
+		echo "query: ${query}"
+		exit 1
+	fi
+
+	echo "${updated_date}"
+}
+
 # Check the database for URL of detail pages.
 # Args: ${1}: URL of detail page of the photo.
 # Retval: 0-255: Number of records.
@@ -232,24 +277,9 @@ function check_db_filename() {
 	return "$RECORDS"
 }
 
-function do_download() {
-	if [[ ${#} -lt 1 ]]; then
-		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
-		exit 1
-	fi
-	local PAGE="${1}"
-
-	local GALLERY_ID="$(basename "${CNT}")"
-	# https://peapix.com/bing/46772
-	local DETAIL_PAGE_URL="${BASE_URL}${PAGE}"
-	w_echo "${DETAIL_PAGE_URL}"
-
-	# Check existence 1
-	if ! check_db_detail_page "${DETAIL_PAGE_URL}"; then
-		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1
-	fi
-
-	# Get photo detail page
+# Get photo detail page HTML and scrape information.
+function get_and_parse_detail_page() {
+	# Get photo detail page HTML
 	local HTML="$(curl -s "${DETAIL_PAGE_URL}")"
 	local IS_404="$(echo "${HTML}" | grep '404!' && echo "1")"
 	if [[ ${IS_404} ]]; then
@@ -258,11 +288,13 @@ function do_download() {
 		return
 	fi
 
-	local PHOTO_FILE_URL="$(echo "${HTML}" |  grep 'src: "https://img\.peapix\.com/.*\.jpg' | "${GNU_SED_BIN}" -e 's/^ \+//g' -e 's/_UHD//g' -e 's/src: "\(.\+\)",/\1/g' -e 's/\r$//g')"
+	# Scraping from the HTML
+	PHOTO_FILE_URL="$(echo "${HTML}" |  grep 'src: "https://img\.peapix\.com/.*\.jpg' | "${GNU_SED_BIN}" -e 's/^ \+//g' -e 's/_UHD//g' -e 's/src: "\(.\+\)",/\1/g' -e 's/\r$//g')"
+
 	# Convert '5b2e5c1b1e6542408f4cfa822354184f_UHD.jpg' to '5b2e5c1b1e6542408f4cfa822354184f'
-	local PHOTO_ORIG_FILENAME="$(basename "${PHOTO_FILE_URL}" | "${GNU_SED_BIN}" -e 's/\.jpg$//g' -e 's/_.\+$//g')"
-	local PHOTO_TITLE="$(echo "${HTML}" | grep "og:title" | "${GNU_SED_BIN}" -e 's/.\+content="\(.\+\)".\+$/\1/g')"
-	local PHOTO_TITLE_SAFE=""
+	PHOTO_ORIG_FILENAME="$(basename "${PHOTO_FILE_URL}" | "${GNU_SED_BIN}" -e 's/\.jpg$//g' -e 's/_.\+$//g')"
+	PHOTO_TITLE="$(echo "${HTML}" | grep "og:title" | "${GNU_SED_BIN}" -e 's/.\+content="\(.\+\)".\+$/\1/g')"
+	PHOTO_TITLE_SAFE=""
 	if [[ ${OPT_SPC_DELETE} ]]; then
 		PHOTO_TITLE_SAFE="$(echo "${PHOTO_TITLE}" | tr -d " "  | tr "/" "-")"
 	elif [[ ${OPT_SPC_TR_HYPHEN} ]]; then
@@ -272,18 +304,46 @@ function do_download() {
 	else
 		PHOTO_TITLE_SAFE="$(echo "${PHOTO_TITLE}" | tr "/" "-")"
 	fi
-	local PHOTO_DATE="$(echo "${HTML}" | grep -o '<time datetime=".*">' | "${GNU_SED_BIN}" -e 's/<time datetime="\([0-9-]\+\)">/\1/g')"
-	local PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="typography-body-2 font-weight-medium mb-3"' | "${GNU_SED_BIN}" -e 's/<h2[^>]\+>\(.\+\)<\/h2>/\1/g')"
-	local PHOTO_FILENAME="${OUTPUT_DIR}/${PHOTO_DATE}_${PHOTO_TITLE_SAFE}.jpg"
+	PHOTO_DATE="$(echo "${HTML}" | grep -o '<time datetime=".*">' | "${GNU_SED_BIN}" -e 's/<time datetime="\([0-9-]\+\)">/\1/g')"
+	PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="typography-body-2 font-weight-medium mb-3"' | "${GNU_SED_BIN}" -e 's/<h2[^>]\+>\(.\+\)<\/h2>/\1/g')"
+	PHOTO_FILENAME="${OUTPUT_DIR}/${PHOTO_DATE}_${PHOTO_TITLE_SAFE}.jpg"
+	# w_echo "PHOTO_FILE_URL: ${PHOTO_FILE_URL}"
+	# w_echo "${PHOTO_DATE} ${PHOTO_TITLE}"
+	# w_echo "PHOTO_ORIG_FILENAME: ${PHOTO_ORIG_FILENAME}"
+	# w_echo "${PHOTO_SHORT_DESC}"
+	# w_echo "PHOTO_FILENAME: ${PHOTO_FILENAME}"
+}
+
+# Download a photo.
+# Args: ${1}: Photo download page.
+function do_download() {
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+	local PAGE="${1}"
+
+	local GALLERY_ID="$(basename "${CNT}")"
+	local DETAIL_PAGE_URL="${BASE_URL}${PAGE}" # https://peapix.com/bing/46772
+	w_echo "${DETAIL_PAGE_URL}"
+
+	# Duplication check #1 (Check existence of DETAIL_PAGE_URL from DB)
+	if ! check_db_detail_page "${DETAIL_PAGE_URL}"; then
+		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1 # Ignore if '--forca-all' specified
+	fi
+
+	# Get photo detail data
+	local PHOTO_FILE_URL="" PHOTO_ORIG_FILENAME="" PHOTO_TITLE="" PHOTO_TITLE_SAFE="" PHOTO_DATE="" PHOTO_SHORT_DESC="" PHOTO_FILENAME=""
+	get_and_parse_detail_page
 	# w_echo "PHOTO_FILE_URL: ${PHOTO_FILE_URL}"
 	w_echo "${PHOTO_DATE} ${PHOTO_TITLE}"
 	# w_echo "PHOTO_ORIG_FILENAME: ${PHOTO_ORIG_FILENAME}"
 	w_echo "${PHOTO_SHORT_DESC}"
 	# w_echo "PHOTO_FILENAME: ${PHOTO_FILENAME}"
 
-	# Check existence 2
+	# Duplication check #2 (Check existence of PHOTO_ORIG_FILENAME from DB)
 	if ! check_db_filename "${PHOTO_ORIG_FILENAME}"; then
-		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1
+		[[ ${OPT_FORCE_ALL} ]] && return 0 || return 1 # Ignore if '--forca-all' specified
 	fi
 
 	# Do download until success
@@ -301,37 +361,49 @@ function do_download() {
 		FILE_TYPE="$(file "${PHOTO_FILENAME}")"
 		if ! [[ ${FILE_TYPE} =~ "JPEG" ]]; then
 			w_echo "ERROR: Website's internal error occured. Trying again."
-			rm -f ${PHOTO_FILENAME}
+			rm -f "${PHOTO_FILENAME}"
 		fi
 	done
 
-	local PHOTO_WIDTH="$(sips -g pixelWidth "${PHOTO_FILENAME}" | grep "pixel" | tr -d " " | cut -d ":" -f 2)"
-	local PHOTO_HEIGHT="$(sips -g pixelHeight "${PHOTO_FILENAME}" | grep "pixel" | tr -d " " | cut -d ":" -f 2)"
-	local HASH_BLAKE3="$(b3sum --no-names "${PHOTO_FILENAME}")"
+	if [[ ${IMG_MANIP} = "sips" ]]; then
+		local PHOTO_WIDTH="$(sips -g pixelWidth "${PHOTO_FILENAME}" | grep "pixel" | tr -d " " | cut -d ":" -f 2)"
+		local PHOTO_HEIGHT="$(sips -g pixelHeight "${PHOTO_FILENAME}" | grep "pixel" | tr -d " " | cut -d ":" -f 2)"
+	elif [[ ${IMG_MANIP} = "identify" ]]; then
+		local PHOTO_WIDTH="$(identify -format "%w")"
+		local PHOTO_HEIGHT="$(identify -format "%h")"
+	fi
 	# w_echo "RESOLUTION: ${PHOTO_WIDTH}x${PHOTO_HEIGHT}"
-	# w_echo "HASH_BLAKE3: ${HASH_BLAKE3}"
 
-	# Delete lor-res photos
-	if [[ ${OPT_FORCE_HD_PLUS} -eq 1 && ${PHOTO_WIDTH} -le 1920 ]] || \
-		 [[ ${OPT_FORCE_HD} -eq 1 && ${PHOTO_WIDTH} -lt 1920 ]] || \
-		 [[ ${OPT_FORCE_WQHD} -eq 1 && ${PHOTO_WIDTH} -lt 2560 ]]; then
+	# Delete low-res photos
+	if [[ ${OPT_FORCE_HD} -eq 1 && ${PHOTO_WIDTH} -le 1920 ]] || \
+	   [[ ${OPT_FORCE_HD_PLUS} -eq 1 && ${PHOTO_WIDTH} -lt 1920 ]] || \
+	   [[ ${OPT_FORCE_WQHD} -eq 1 && ${PHOTO_WIDTH} -lt 2560 ]]; then
 		w_echo "Skip due to insufficient resolution."
 		rm "${PHOTO_FILENAME}"
 		return
+	fi
+
+	# Get and check hash
+	local HASH_BLAKE3="$(b3sum --no-names "${PHOTO_FILENAME}")"
+	# w_echo "HASH_BLAKE3: ${HASH_BLAKE3}"
+	local HASH_DUP_COUNT="$(get_count_hash_duplicated "${HASH_BLAKE3}")"
+	if (( HASH_DUP_COUNT > 0 )); then
+		local FLG_HASH_DUP=1
+		w_echo "Skip due to hash duplication."
 	fi
 
 	# Change filename
 	local PHOTO_FILENAME2="${OUTPUT_DIR}/${PHOTO_DATE}_${GALLERY_ID}_${PHOTO_TITLE_SAFE}_${PHOTO_WIDTH}x${PHOTO_HEIGHT}.jpg"
 	mv "${PHOTO_FILENAME}" "${PHOTO_FILENAME2}"
 
-	if [[ ${OPT_DRY_RUN} ]]; then
-		# Do if dry run
+	# Do if dry run or hash duplication detected
+	if [[ ${OPT_DRY_RUN} || ${FLG_HASH_DUP} ]]; then
 		rm "${PHOTO_FILENAME2}"
 	fi
 
 	# Insert into table
-	if [[ ! ${OPT_DRY_RUN} ]]; then
-		# NOT do if dry run
+	# NOT do if dry run or hash duplication detected
+	if [[ ! ${OPT_DRY_RUN} || ! ${FLG_HASH_DUP} ]]; then
 		local RETCODE="255"
 		while [[ ${RETCODE} -ne 0 ]]; do
 			local SQL_INSERT="INSERT INTO bing_photos(site_id, gallery_id,  updated_date, title, photo_url, width, height, orig_filename, saved_filename, hash_blake3, detail_page, short_desc) VALUES ('${SITE_ID}', '${GALLERY_ID}', '${PHOTO_DATE}', '${PHOTO_TITLE}', '${PHOTO_FILE_URL}', '${PHOTO_WIDTH}', '${PHOTO_HEIGHT}', '${PHOTO_ORIG_FILENAME}', '${PHOTO_FILENAME2#"output/"}', '${HASH_BLAKE3}', '$(basename "${DETAIL_PAGE_URL}")', '${PHOTO_SHORT_DESC}')"
@@ -367,19 +439,49 @@ function day_loop() {
 	fi
 	local DETAIL_PAGE_LIST=("$@")
 	# Reverse the month order
-	for (( i=${#DETAIL_PAGE_LIST[@]} - 1; i >= 0; i-- )); do
-		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
+	for (( i = ${#DETAIL_PAGE_LIST[@]} - 1; i >= 0; i-- )); do
+
+		# Break if it reaches OPT_END_AT
+		if [[ ${OPT_END_AT} ]]; then
+			local epoch_end_at=$(${GNU_DATE_BIN} -d "${OPT_END_AT}" +%s)
+			local current_day="$(printf "%s-%s-%02d" "${YEAR}" "${MONTH}" "$((i+1))")"
+			local epoch_current_photo=$(${GNU_DATE_BIN} -d "${current_day}" +%s)
+			# echo "Current: ${current_day}(${epoch_current_photo}) / Ends at: ${OPT_END_AT}(${epoch_end_at})"
+			if (( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )); then
+				local l_pid="${BASHPID}"
+			else
+				local l_pid="${!}"
+			fi
+			if [[ ${epoch_current_photo} -le ${epoch_end_at} ]]; then
+				echo "${l_pid} reaches the end. [${current_day}] vs [${OPT_END_AT}]]"
+				BREAK_TO_NEXT_GALLERY=1
+			fi
+		fi
+
+		# Break to month_loop() if the flag is set.
+		(( BREAK_TO_NEXT_GALLERY > 0 )) && break
+
 		local PAGE="${DETAIL_PAGE_LIST[i]}"
 		local L_PID
-		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${!}" || L_PID="${BASHPID}"
-		printf "PID#%7d / Total Attempts:%d / Gallery:%s/%d / %s/%s/%02d / Downloaded:%d\n" \
-		"${L_PID}" "${DL_NUM}" "$(basename "${CNT}" | tr '[:lower:]' '[:upper:]')" "${C_DL_NUM}" "${YEAR}" "${MONTH}" "$((i+1))" "${DOWNLOADED_NUM}"
+		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) &&  L_PID="${BASHPID}" || L_PID="${!}"
+		printf "PID:%7d / Total Attempts:%d / Gallery:%s/%d / %s-%s-%02d / Downloaded:%d\n" \
+			"${L_PID}" \
+			"${DL_NUM}" \
+			"$(basename "${CNT}" | tr '[:lower:]' '[:upper:]')" \
+			"${C_DL_NUM}" \
+			"${YEAR}" \
+			"${MONTH}" \
+			"$((i+1))" \
+			"${DOWNLOADED_NUM}"
+
+		# Set break-from-this-gallery flag if do_download() returns false
 		if do_download "${PAGE}"; then
 			(( DL_NUM++ ))
 			(( C_DL_NUM++ ))
 		else
 			BREAK_TO_NEXT_GALLERY=1
 		fi
+
 		# Quit if shutdown flag had been set by safe_exit()
 		if [[ ${G_SHUTDOWN} ]]; then
 			echo "Quitting"
@@ -392,7 +494,7 @@ function day_loop() {
 # Invoke day_loop() for each month.
 # Args: List of months to process.
 function month_loop() {
-	local -a L_MONTHS DETAIL_PAGE_LIST
+	local -a L_MONTHS DETAIL_PAGE_LIST RESULTS
 	if [[ ${#} -lt 1 ]]; then
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
@@ -400,7 +502,9 @@ function month_loop() {
 	local L_MONTHS=("$@")
 
 	for MONTH in "${L_MONTHS[@]}"; do
+		# Break to year_loop() if the flag is set.
 		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
+
 		h_rule -
 		w_echo "MONTH: $MONTH [${BASE_URL}${CNT}${YEAR}/${MONTH}]"
 		h_rule -
@@ -410,41 +514,22 @@ function month_loop() {
 			| "${GNU_GREP_BIN}" -Po 'href=".+?"' \
 			| "${GNU_SED_BIN}" -e 's/href="\(.\+\)"/\1/g'))
 		#TODO: Check null
-		day_loop "${DETAIL_PAGE_LIST[@]}"
-	done
-
-}
-
-}
-
-function year_loop() {
-	local YEAR MONTH BREAK_TO_NEXT_GALLERY
-	local -a L_MONTHS DETAIL_PAGE_LIST
-
-	BREAK_TO_NEXT_GALLERY=0
-	for YEAR in "${OPT_YEAR[@]}"; do
-		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
-		h_rule "-"
-		w_echo "YEAR: $YEAR"
-
-		if [[ ${YEAR} -eq $(date +'%Y') ]]; then
-			L_MONTHS=( $(printf "%02d " $(seq "$(date +'%m')" 1)) )
-		else
-			L_MONTHS=("${OPT_MONTH[@]}")
-		fi
-
 
 		if [[ ${OPT_CONCURRENT_MONTH} ]]; then
+			# Concurrent download for month
 			while (( $(running_jobs_count) >= OPT_MAX_CONCURRENCY )); do
 				sleep 1
 			done
-			month_loop "${L_MONTHS[@]}" &
-			C_PID+=($!)
+			day_loop "${DETAIL_PAGE_LIST[@]}" &
+			C_PID+=(${!})
 			sleep 1
 		else
-			month_loop "${L_MONTHS[@]}"
+			# Sequential processing
+			day_loop "${DETAIL_PAGE_LIST[@]}"
 		fi
 	done
+
+	# Wait for threads
 	if [[ ${OPT_CONCURRENT_MONTH} ]]; then
 		for PID in "${C_PID[@]}"; do
 			wait "${PID}"
@@ -454,37 +539,135 @@ function year_loop() {
 	fi
 }
 
+# Invoke month_loop() for each year.
+# ** Concurrent invoking for months **
+# Args: none
+function year_loop() {
+	local YEAR MONTH BREAK_TO_NEXT_GALLERY
+	local -a L_MONTHS DETAIL_PAGE_LIST
+
+	BREAK_TO_NEXT_GALLERY=0 # The flag
+	for YEAR in "${OPT_YEAR[@]}"; do
+		# Break to gallery_loop() if the flag is set.
+		(( BREAK_TO_NEXT_GALLERY > 0 )) && break;
+
+		h_rule "-"
+		w_echo "YEAR: $YEAR"
+
+		# Adjust the months to download
+		# TODO: Complete patterns
+		# if [[ ${OPT_END_AT} && ${YEAR} -eq $(GNU_DATE_BIN -d "${OPT_END_AT}" +'%Y') ]]; then
+		#     :
+		# fi
+		if [[ ${YEAR} -eq $(date +'%Y') ]]; then
+			# Current year: From current month to January
+			L_MONTHS=( $(printf "%02d " $(seq "$(date +'%m')" 1)) )
+		else
+			L_MONTHS=("${OPT_MONTH[@]}")
+		fi
+
+		month_loop "${L_MONTHS[@]}"
+	done
+}
+
+# Invoke year_loop() for each gallery
+# ** Concurrent processing for galleries **
+# Args: none
+function gallery_loop() {
+	for CNT in "${OPT_CNT[@]}"; do
+		h_rule "="
+		echo -n "Gallery: "
+		case "${CNT}" in
+			"${C_JP}")	echo "Japan";;
+			"${C_US}")	echo "United States";;
+			"${C_UK}")	echo "United Kingdom";;
+			"${C_AU}")	echo "Australia";;
+			"${C_CA}")	echo "Canada";;
+			"${C_IN}")	echo "India";;
+			"${C_FR}")	echo "France";;
+			"${C_IT}")	echo "Italia";;
+			"${C_DE}")	echo "Germany";;
+			"${C_ES}")	echo "Spain";;
+			"${C_BR}")	echo "Brasil";;
+			"${C_CN}")	echo "China";;
+			* )			echo "Country: $CNT";;
+		esac
+
+		# Reset OPT_END_AT from DB if auto-resume is set
+		if [[ ${OPT_AUTO_RESUME} ]]; then
+			OPT_END_AT=$(get_last_downloaded_by_gallery "${CNT}")
+			echo "Last download: ${OPT_END_AT}"
+			END_YEAR=${OPT_END_AT:0:4} || END_YEAR=2010
+			OPT_YEAR=( $(seq "${START_YEAR}" "${END_YEAR}") )
+			echo "OPT_YEAR : ${OPT_YEAR[*]}"
+		fi
+
+		C_DL_NUM=1 # Number of downloads per gallery
+		# Concurrent download for galleries
+		if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
+			year_loop&
+			C_PID+=(${!})
+			sleep 60
+		else
+			# Sequential processing
+			year_loop
+		fi
+	done
+
+	# Wait for all the child processes to complete
+	if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
+		for PID in "${C_PID[@]}"; do
+			wait "${PID}"
+			RESULTS+=($?)
+		done
+	echo "RESULTS: ${RESULTS[*]}"
+	fi
+}
+
 function show_help() {
 echo "Usage: $(basename "$0") [OPTION]..."
     echo "Process the command-line options for the script."
     echo
     echo "Options:"
-	echo "  --concurrent-gallery    [BETA] Parallel download for galleries."
+	# echo "  --concurrent-gallery    [BETA] Parallel download for galleries. CURRENTLY NOT RECOMMENDED."
 	echo "  --concurrent-month      [BETA] Parallel download for months."
-	echo "  --concurrency           [BETA] Maximum number of concurrent processes. [default: 4]"
+	echo "  --concurrency <n>       [BETA] Maximum number of concurrent processes. [default: 4]"
+	echo
 	echo "  --gallery-<CN>          Download wallpapers from these galleries. [default: all]"
 	echo "                          CN: all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn"
-    echo "  --dry-run               Perform a dry run without making any changes."
+	echo
     echo "  --force-all             Doesn't stop if it was already downloaded photo."
+	echo "  --resume-by-db          Resume download from last db record."
+	echo "  --start-from yyyy-mm-dd Start to download from this date. [default: today's date]"
+	echo "  --end-at yyyy-mm-dd     End to download at thid date. [default: 2010-01-01]"
+	echo "                          (*) This program downloads wallpapers backwards in time."
+	echo "                              Therefore, the start date must be in the future rather than"
+	echo "                              the end date."
+	echo "  --auto-last             Download until last downloaded date for each gallery."
+	echo
     echo "  --hd                    Download only wallpapers with HD or higher resolution."
     echo "  --hd-plus               Download only wallpapers with larger-than-HD resolution."
 	echo "  --wqhd                  Download only wallpapers with WQHD or larger resplution."
+	echo
     echo "  --spc-del               Replace spaces with delete action."
     echo "  --spc-hyphen            Replace spaces with hyphens."
     echo "  --spc-under             Replace spaces with underscores."
-	echo "  --resume-by-db          Resume download from last db record."
+	echo
+    echo "  --dry-run               Perform a dry run without making any changes."
     echo "  --help                  Display this help and exit."
     echo
 }
 
-function mangle_opstions {
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
+function mangle_options {
+	local RE_DATE="^[0-9]{4}-[0-9]{2}-[0-9]{2}$"
 	while [[ ${#} -gt 0 ]]; do
 		case "${1}" in
-			--concurrent-gallery )
-				OPT_CONCURRENT_GALLERY=1
-				echo "concurrent-gallery";;
+			--auto-resume )
+				OPT_AUTO_RESUME=1
+				echo "auto-last";;
+			# --concurrent-gallery )
+			#     OPT_CONCURRENT_GALLERY=1
+			#     echo "concurrent-gallery";;
 			--concurrent-month )
 				OPT_CONCURRENT_MONTH=1
 				echo "concurrent-month";;
@@ -495,6 +678,24 @@ function mangle_opstions {
 					shift
 				else
 					echo "ERROR: concurrency: numerical value must be specified."
+					exit 1
+				fi;;
+			--start-from )
+				if [[ ${2} =~ ${RE_DATE} ]]; then
+					OPT_START_FROM=${2}
+					echo "start-from ${OPT_START_FROM}"
+					shift
+				else
+					echo "ERROR: start-from: only 'YYYY-MM-DD' style is accepted."
+					exit 1
+				fi;;
+			--end-at )
+				if [[ ${2} =~ ${RE_DATE} ]]; then
+					OPT_END_AT=${2}
+					echo "end-at ${OPT_END_AT}"
+					shift
+				else
+					echo "ERROR: end-at: only 'YYYY-MM-DD' style is accepted."
 					exit 1
 				fi;;
 			--dry-run )
@@ -521,9 +722,6 @@ function mangle_opstions {
 			--spc-under )
 				OPT_SPC_TR_UNDER=1
 				echo "spc -> under";;
-			--resume-by-db )
-				OPT_RESUME_BY_DB=1
-				echo "resume by db";;
 			--help )
 				show_help
 				exit;;
@@ -632,46 +830,6 @@ function mangle_opstions {
 	fi
 }
 
-function gallery_loop() {
-	for CNT in "${OPT_CNT[@]}"; do
-		h_rule "="
-		echo -n "Gallery: "
-		case "${CNT}" in
-			"${C_JP}")	echo "Japan";;
-			"${C_US}")	echo "United States";;
-			"${C_UK}")	echo "United Kingdom";;
-			"${C_AU}")	echo "Australia";;
-			"${C_CA}")	echo "Canada";;
-			"${C_IN}")	echo "India";;
-			"${C_FR}")	echo "France";;
-			"${C_IT}")	echo "Italia";;
-			"${C_DE}")	echo "Germany";;
-			"${C_ES}")	echo "Spain";;
-			"${C_BR}")	echo "Brasil";;
-			"${C_CN}")	echo "China";;
-			* )			echo "Country: $CNT";;
-		esac
-
-		C_DL_NUM=1
-		if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
-			year_loop&
-			C_PID+=($!)
-			sleep 60
-		else
-			year_loop
-		fi
-	done
-
-	# Wait for all the child processes to complete
-	if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
-		for PID in "${C_PID[@]}"; do
-			wait "${PID}"
-			RESULTS+=($?)
-		done
-	echo "RESULTS: ${RESULTS[*]}"
-	fi
-}
-
 ##### Entry point
 SITE_ID="peapix"
 BASE_URL="https://peapix.com"
@@ -681,33 +839,44 @@ C_GEN="/bing/"; C_AU="/bing/au/"; C_CA="/bing/ca/"; C_CN="/bing/cn/"; C_DE="/bin
 C_FR="/bing/fr/"; C_IN="/bing/in/"; C_JP="/bing/jp/"; C_ES="/bing/es/"; C_UK="/bing/gb/"
 C_US="/bing/us/"; C_IT="/bing/it/"; C_BR="/bing/br/";
 
-# Year and months to check
-# The latest to the oldest
-OPT_YEAR=( $(seq "$(date +'%Y')" 2010) )
-OPT_MONTH=(12 11 10 09 08 07 06 05 04 03 02 01)
-
 # Misc variables
 DL_NUM=1
 DOWNLOADED_NUM=0
 
-# Galleries to visit
-declare -a OPT_CNT
+OPT_YEAR=()		# Array to store years
+OPT_MONTH=()	# Arrays to store months to check
+C_PID=()		# Array to store pids of child processes
+OPT_CNT=()		# Galleries to visit
 
+# Trap interupption
 trap safe_exit SIGINT
 # trap 'kill ${BG_PID}' EXIT
+
+# Initial processing
 check_required_software
 enable_loadables
+mangle_options "$@"
 
-mangle_opstions "$@"
+# Year and months to check (order is the latest to the oldest)
+[[ ${OPT_START_FROM} ]] && START_YEAR=${OPT_START_FROM:0:4} || START_YEAR=$(date +'%Y')
+[[ ${OPT_END_AT} ]] && END_YEAR=${OPT_END_AT:0:4} || END_YEAR=2010
+OPT_YEAR=( $(seq "${START_YEAR}" "${END_YEAR}") )
+OPT_MONTH=(12 11 10 09 08 07 06 05 04 03 02 01)
+echo "OPT_YEAR : ${OPT_YEAR[*]}"
+echo "OPT_MONTH: ${OPT_MONTH[*]}"
 
+# EXPERIMENTAL: Attemting to detect key press
+# Exit safely with "q" key
 # wait_for_key &
 # BG_PID=${!}
 # echo "BG_PID=${BG_PID}"
 
+# Check DB file and table
 if ! check_table_existence "bing_photos"; then
 	echo "Creating DB."
 	create_table
 fi
 
+# Main process
 gallery_loop
-
+# -> month_loop() -> day_loop() -> do_download()
