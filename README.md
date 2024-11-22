@@ -1,5 +1,5 @@
-# wallpaper-downloaders
-A collection of small scripts to download wallpapers.
+# Wallpaper downloaders
+A collection of small scripts to download wallpaper.
 
 ## Usage
 
@@ -15,6 +15,7 @@ Clone this repository `git clone https://github.com/hmr/bing-wallpaper-dl.git`
     - `./bing-wallpaper-dl_peapix --gallery-all --concurrent-month --auto-resume --ignore-url-check`
 
 ### For Unsplash's wallpaper collection
+**!!CURRENTLY NOT WORKING!!**
 - cd to unsplash directory `cd unsplash`
 - mkdir output directory `mkdir output`
 - execute `./unsplash-wallpaper.bash`
@@ -38,32 +39,35 @@ This script downloads Bing Wallpapers from today's date to the past (until 2010-
 Syntax: `bing-wallpaper-dl_peapix [Options]`
 
 #### Options:
-##### --concurrent-gallery
-[BETA] Parallel download for galleries.
-For example if you assign "--gallery-us" and "--gallery-it", this option will
+
+##### --dry-run
+Do a Dry-run. This does not make any changes.
+
+##### --auto-resume
+Download latest to last downloaded date only.
 
 ##### --concurrent-month
-[BETA] Parallel download for months.
+Parallel download for months.
 
 ##### --concurrency
-[BETA] Maximum number of concurrent processes [default: 4].
+Maximum number of concurrent processes [default: 4].
 
 ##### --gallery-[COUNTRY]
 Bing Wallpaper is available in many countries. This option is for selecting them. For example, to select Japan, use `--gallery-jp`. Multiple countries can be specified. `--gallery-all` is equivalent to specifying all countries.
 COUNTRY: all, jp, us, uk, au, ca, in, fr, it, de, es, br, cn
 [default: all]
 
-##### --dry-run
-Do a Dry-run. This does not make any changes.
-
 ##### --force-all
 By default, the tool downloads images in date order from newest to oldest, and terminates when it reaches a previously downloaded image. Setting this option will prevent it from stopping in that case. This is useful if you want to download all images across the gallery.
 
-##### --uhd
-Download UHD photos only.
-
 ##### --hd
-Download HD and UHD photos only.
+Download HD or larger wallpaper only.
+
+##### --hd-plus
+Download more-than-HD wallpaper only.
+
+##### --wqhd
+Download WQHD or larger wallpaper only.
 
 ##### --spc-del
 Delete spaces in file name when saving.
@@ -73,9 +77,6 @@ Replace spaces in file names with hyphens when saving.
 
 ##### --spc-under
 Replace spaces in file names with underscores when saving.
-
-##### --resume-by-db
-Resume downloading from the last point stored in the DB.
 
 ##### --help
 Display this help and exit.
