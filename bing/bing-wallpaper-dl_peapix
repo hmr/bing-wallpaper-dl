@@ -492,9 +492,10 @@ function day_loop() {
 }
 
 # Invoke day_loop() for each month.
+# ** Concurrent invoking for months **
 # Args: List of months to process.
 function month_loop() {
-	local -a L_MONTHS DETAIL_PAGE_LIST RESULTS
+	local -a L_MONTHS DETAIL_PAGE_LIST RESULTS CM_PID
 	if [[ ${#} -lt 1 ]]; then
 		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
 		exit 1
@@ -521,7 +522,7 @@ function month_loop() {
 				sleep 1
 			done
 			day_loop "${DETAIL_PAGE_LIST[@]}" &
-			C_PID+=(${!})
+			CM_PID+=(${!})
 			sleep 1
 		else
 			# Sequential processing
@@ -531,16 +532,16 @@ function month_loop() {
 
 	# Wait for threads
 	if [[ ${OPT_CONCURRENT_MONTH} ]]; then
-		for PID in "${C_PID[@]}"; do
+		local RESULTS=()
+		for PID in "${CM_PID[@]}"; do
 			wait "${PID}"
 			RESULTS+=($?)
 		done
-		echo "Gallery:$(basename "${CNT}") Results:${RESULTS[*]}"
+		echo "Gallery: [$(basename "${CNT}")] Results: ${RESULTS[*]}"
 	fi
 }
 
 # Invoke month_loop() for each year.
-# ** Concurrent invoking for months **
 # Args: none
 function year_loop() {
 	local YEAR MONTH BREAK_TO_NEXT_GALLERY
@@ -580,6 +581,7 @@ function year_loop() {
 # ** Concurrent processing for galleries **
 # Args: none
 function gallery_loop() {
+	local -a CG_PID
 	for CNT in "${OPT_CNT[@]}"; do
 		h_rule "="
 		echo -n "Gallery: "
@@ -612,7 +614,7 @@ function gallery_loop() {
 		# Concurrent download for galleries
 		if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
 			year_loop&
-			C_PID+=(${!})
+			CG_PID+=(${!})
 			sleep 60
 		else
 			# Sequential processing
@@ -622,11 +624,12 @@ function gallery_loop() {
 
 	# Wait for all the child processes to complete
 	if [[ ${OPT_CONCURRENT_GALLERY} ]]; then
-		for PID in "${C_PID[@]}"; do
+		local RESULTS=()
+		for PID in "${CG_PID[@]}"; do
 			wait "${PID}"
 			RESULTS+=($?)
 		done
-	echo "RESULTS: ${RESULTS[*]}"
+		echo "RESULTS: ${RESULTS[*]}"
 	fi
 }
 
@@ -859,7 +862,6 @@ DOWNLOADED_NUM=0
 
 OPT_YEAR=()		# Array to store years
 OPT_MONTH=()	# Arrays to store months to check
-C_PID=()		# Array to store pids of child processes
 OPT_CNT=()		# Galleries to visit
 
 # Trap interupption
