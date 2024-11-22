@@ -556,16 +556,22 @@ function year_loop() {
 
 		# Adjust the months to download
 		# TODO: Complete patterns
-		# if [[ ${OPT_END_AT} && ${YEAR} -eq $(GNU_DATE_BIN -d "${OPT_END_AT}" +'%Y') ]]; then
-		#     :
-		# fi
-		if [[ ${YEAR} -eq $(date +'%Y') ]]; then
-			# Current year: From current month to January
-			L_MONTHS=( $(printf "%02d " $(seq "$(date +'%m')" 1)) )
-		else
-			L_MONTHS=("${OPT_MONTH[@]}")
+		if [[ ${OPT_END_AT} ]]; then
+			if [[ ${YEAR} -eq $(${GNU_DATE_BIN} +'%Y') ]]; then
+				if [[ ${YEAR} -eq $(${GNU_DATE_BIN} -d "${OPT_END_AT}" +'%Y') ]]; then
+					L_MONTHS=( $(printf "%02d " $(seq "$(${GNU_DATE_BIN} +%m)" "$(${GNU_DATE_BIN} -d ${OPT_END_AT} +%m)" ) ) )
+				else
+					L_MONTHS=( $(printf "%02d " $(seq "$(${GNU_DATE_BIN} +%m)" "1") ) )
+				fi
+			else
+				if [[ ${YEAR} -eq $(${GNU_DATE_BIN} -d "${OPT_END_AT}" +'%Y') ]]; then
+					L_MONTHS=( $(printf "%02d " $(seq "12" "$(${GNU_DATE_BIN} -d ${OPT_END_AT} +%m)" ) ) )
+				else
+					L_MONTHS=( $(printf "%02d " $(seq 12 1) ) )
+				fi
+			fi
 		fi
-
+		echo "L_MONTHS for ${YEAR}: ${L_MONTHS[*]}"
 		month_loop "${L_MONTHS[@]}"
 	done
 }
