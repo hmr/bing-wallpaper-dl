@@ -9,7 +9,10 @@ Clone this repository `git clone https://github.com/hmr/bing-wallpaper-dl.git`
 ### For Bing Wallpaper
 - cd to bing directory `cd bing`
 - mkdir output directory `mkdir output`
-- execute `./bing-wallpaper-dl_peapix --force-all`
+- 1st time execution
+    - `./bing-wallpaper-dl_peapix --gallery-all --concurrent-month --ignore-url-check`
+- 2nd time execution
+    - `./bing-wallpaper-dl_peapix --gallery-all --concurrent-month --auto-resume --ignore-url-check`
 
 ### For Unsplash's wallpaper collection
 - cd to unsplash directory `cd unsplash`
@@ -20,8 +23,10 @@ Clone this repository `git clone https://github.com/hmr/bing-wallpaper-dl.git`
 Any unix/linux/macOS with following softwares installed.
 - bash
 - curl
+- sips(macOS only) or identify(ImageMagick)
 - GNU grep
 - GNU sed
+- GNU date(coreutils)
 - jq (unsplash only)
 
 ##  Detailed description
