@@ -874,8 +874,14 @@ enable_loadables
 mangle_options "$@"
 
 # Year and months to check (order is the latest to the oldest)
-[[ ${OPT_START_FROM} ]] && START_YEAR=${OPT_START_FROM:0:4} || START_YEAR=$(date +'%Y')
-[[ ${OPT_END_AT} ]] && END_YEAR=${OPT_END_AT:0:4} || END_YEAR=2010
+if [[ ! ${OPT_START_FROM} ]]; then
+	OPT_START_FROM=$(${GNU_DATE_BIN} +'%Y-%m-%d')
+fi
+if [[ ! ${OPT_END_AT} ]]; then
+	OPT_END_AT="2010-01-01"
+fi
+START_YEAR=${OPT_START_FROM:0:4}
+END_YEAR=${OPT_END_AT:0:4}
 OPT_YEAR=( $(seq "${START_YEAR}" "${END_YEAR}") )
 OPT_MONTH=(12 11 10 09 08 07 06 05 04 03 02 01)
 echo "OPT_YEAR : ${OPT_YEAR[*]}"
