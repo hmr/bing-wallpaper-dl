@@ -463,7 +463,7 @@ function day_loop() {
 
 		local PAGE="${DETAIL_PAGE_LIST[i]}"
 		local L_PID
-		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) &&  L_PID="${BASHPID}" || L_PID="${!}"
+		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${BASHPID}" || L_PID="${!}"
 		printf "PID:%7d / Total Attempts:%d / Gallery:%s/%d / %s-%s-%02d / Downloaded:%d\n" \
 			"${L_PID}" \
 			"${DL_NUM}" \
@@ -484,7 +484,8 @@ function day_loop() {
 
 		# Quit if shutdown flag had been set by safe_exit()
 		if [[ ${G_SHUTDOWN} ]]; then
-			echo "Quitting"
+			(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${BASHPID}" || L_PID="${!}"
+			echo "Quitting #${L_PID}@${FUNCNAME[0]}()"
 			exit
 		fi
 		w_echo
@@ -527,6 +528,13 @@ function month_loop() {
 		else
 			# Sequential processing
 			day_loop "${DETAIL_PAGE_LIST[@]}"
+		fi
+
+		# Quit if shutdown flag had been set by safe_exit()
+		if [[ ${G_SHUTDOWN} ]]; then
+			(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${BASHPID}" || L_PID="${!}"
+			echo "Quitting #${L_PID}@${FUNCNAME[0]}()"
+			exit
 		fi
 	done
 
@@ -574,6 +582,14 @@ function year_loop() {
 		fi
 		echo "L_MONTHS for ${YEAR}: ${L_MONTHS[*]}"
 		month_loop "${L_MONTHS[@]}"
+
+		# Quit if shutdown flag had been set by safe_exit()
+		if [[ ${G_SHUTDOWN} ]]; then
+			(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${BASHPID}" || L_PID="${!}"
+			echo "Quitting #${L_PID}@${FUNCNAME[0]}()"
+			exit
+		fi
+
 	done
 }
 
@@ -603,7 +619,10 @@ function gallery_loop() {
 
 		# Reset OPT_END_AT from DB if auto-resume is set
 		if [[ ${OPT_AUTO_RESUME} ]]; then
-			OPT_END_AT=$(get_last_downloaded_by_gallery "${CNT}")
+			OPT_END_AT=$(get_last_downloaded_by_gallery "${CNT}") || {
+				echo "${OPT_END_AT}"
+				exit 1
+			}
 			echo "Last download: ${OPT_END_AT}"
 			END_YEAR=${OPT_END_AT:0:4} || END_YEAR=2010
 			OPT_YEAR=( $(seq "${START_YEAR}" "${END_YEAR}") )
@@ -619,6 +638,13 @@ function gallery_loop() {
 		else
 			# Sequential processing
 			year_loop
+		fi
+
+		# Quit if shutdown flag had been set by safe_exit()
+		if [[ ${G_SHUTDOWN} ]]; then
+			(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${BASHPID}" || L_PID="${!}"
+			echo "Quitting #${L_PID}@${FUNCNAME[0]}()"
+			exit
 		fi
 	done
 
