@@ -203,6 +203,22 @@ function get_count_hash_duplicated() {
 	echo "${count}"
 }
 
+# Returns detail of hash duplication
+# Args: 1: blake3_hash
+function get_info_hash_duplicated() {
+	if [[ ${#} -lt 1 ]]; then
+		echo "ERROR: Not enough args @ ${FUNCNAME[0]}()"
+		exit 1
+	fi
+    local hash_blake3="${1}"
+
+	local query="SELECT gallery_id,updated_date,title FROM bing_photos WHERE hash_blake3='${hash_blake3}'"
+	local result="$(sqlite3 "${DB_FILE}" "${query}")" \
+		|| { echo "ERROR: sqlite3 error $? at ${FUNCNAME[0]}()"; exit 1;}
+
+	echo "${result}"
+}
+
 # Returns the latest updated_date by gallery
 # Args: ${1}: gallery id
 function get_last_downloaded_by_gallery() {
@@ -271,6 +287,9 @@ function check_db_filename() {
 	done
 	if (( RECORDS > 0 )); then
 		w_echo "Already downloaded! [${PHOTO_ORIG_FILENAME}] @ ${FUNCNAME[0]}()"
+		SQL_SELECT="SELECT gallery_id,updated_date,title FROM bing_photos WHERE orig_filename='${PHOTO_ORIG_FILENAME}'"
+		RECORDS="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
+		w_echo "As '${RECORDS}'"
 	fi
 
 	[[ $RECORDS -gt 255 ]] && RECORDS=255
@@ -390,6 +409,7 @@ function do_download() {
 	if (( HASH_DUP_COUNT > 0 )); then
 		local FLG_HASH_DUP=1
 		w_echo "Skip due to hash duplication."
+		w_echo "$(get_info_hash_duplicated "${HASH_BLAKE3}")"
 	fi
 
 	# Change filename
