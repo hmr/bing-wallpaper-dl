@@ -89,7 +89,7 @@ function do_enable() {
 	local MODULE=${1}
 
 	if enable -f "${MODULE}" "${MODULE}" >& /dev/null; then
-		echo "enabled builtin ${MODULE}"
+		LC_ALL=C type "${MODULE}"
 		return 0
 	fi
 	return 1
@@ -98,11 +98,11 @@ function do_enable() {
 # Experimental function to enable alternative built-in command
 function enable_loadables () {
 	do_enable basename
-	# do_enable cat
-	# do_enable necho
+	do_enable cat
+	do_enable echo
 	do_enable rm
 	do_enable seq
-	# do_enable sleep
+	do_enable sleep
 }
 
 # Print a message but skip id concurrent run is set.
@@ -288,8 +288,8 @@ function check_db_filename() {
 	if (( RECORDS > 0 )); then
 		w_echo "Already downloaded! [${PHOTO_ORIG_FILENAME}] @ ${FUNCNAME[0]}()"
 		SQL_SELECT="SELECT gallery_id,updated_date,title FROM bing_photos WHERE orig_filename='${PHOTO_ORIG_FILENAME}'"
-		RECORDS="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
-		w_echo "As '${RECORDS}'"
+		local TITLE="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
+		w_echo "As '${TITLE}'"
 	fi
 
 	[[ $RECORDS -gt 255 ]] && RECORDS=255
