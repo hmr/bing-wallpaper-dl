@@ -128,7 +128,9 @@ function h_rule() {
 # Create blank database.
 # Args: None
 function create_table() {
-	local SQL="
+	local SQL
+
+	SQL="
 	create table if not exists mst_site (
 		site_id         text    primary key,
 		site_name       text,
@@ -141,6 +143,7 @@ function create_table() {
 		exit 3
 	fi
 
+	# Table to store information about downloaded photos
 	SQL="
 	create table if not exists bing_photos (
 		id              integer     primary key,
@@ -163,6 +166,36 @@ function create_table() {
 		echo "ERROR: create table(2) failed."
 		exit 3
 	fi
+
+	# Table to store last execution date for each gallery
+	SQL="
+	create table if not exists gallery_date (
+		site_id         text        not null,
+		gallery_id      text        primary key,
+		exec_date       text        not null
+	);"
+
+	if ! sqlite3 "${DB_FILE}" "${SQL}"; then
+		echo "ERROR: create table(3) failed."
+		exit 3
+	fi
+
+	local exec_date="1901-01-01"
+	for cnt in "${OPT_CNT[@]}"; do
+		SQL="
+		INSERT INTO gallery_date(site_id, gallery_id, exec_date)
+		VALUES ( '${SITE_ID}', '${cnt}', '${exec_date}'
+		);'"
+
+		local RETCODE="255"
+		while [[ ${RETCODE} -ne 0 ]]; do
+			sqlite3 "${DB_FILE}" <<< "${SQL_INSERT}" 2>> "${ERROR_LOG_FILE}"
+			RETCODE=$?
+			if [[ ${RETCODE} -ne 0 ]]; then
+				echo "ERROR: DB insert error [code:${RETCODE}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+			fi
+		done
+	done
 }
 
 # Check the existence of the table.
@@ -255,7 +288,7 @@ function check_db_detail_page() {
 		RECORDS="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
 		RETCODE=$?
 		if [[ ${RETCODE} -ne 0 ]]; then
-			echo "ERROR: DB select error [code:${RES_INSERT}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+			echo "ERROR: DB select error [code:${RETCODE}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
 		fi
 	done
 	if (( RECORDS > 0 )); then
@@ -282,7 +315,7 @@ function check_db_filename() {
 		RECORDS="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
 		RETCODE=$?
 		if [[ ${RETCODE} -ne 0 ]]; then
-			echo "ERROR: ${PHOTO_DATE} ${GALLERY_ID} ${PHOTO_FILE_URL} DB select error [code:${RES_INSERT}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+			echo "ERROR: ${PHOTO_DATE} ${GALLERY_ID} ${PHOTO_FILE_URL} DB select error [code:${RETCODE}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
 		fi
 	done
 	if (( RECORDS > 0 )); then
@@ -430,7 +463,7 @@ function do_download() {
 			sqlite3 "${DB_FILE}" <<< "${SQL_INSERT}" 2>> "${ERROR_LOG_FILE}"
 			RETCODE=$?
 			if [[ ${RETCODE} -ne 0 ]]; then
-				echo "ERROR: ${PHOTO_DATE} ${GALLERY_ID} ${PHOTO_FILE_URL} DB insert error [code:${RES_INSERT}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+				echo "ERROR: ${PHOTO_DATE} ${GALLERY_ID} ${PHOTO_FILE_URL} DB insert error [code:${RETCODE}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
 			fi
 		done
 	fi
@@ -467,13 +500,13 @@ function day_loop() {
 			local current_day="$(printf "%s-%s-%02d" "${YEAR}" "${MONTH}" "$((i+1))")"
 			local epoch_current_photo=$(${GNU_DATE_BIN} -d "${current_day}" +%s)
 			# echo "Current: ${current_day}(${epoch_current_photo}) / Ends at: ${OPT_END_AT}(${epoch_end_at})"
-			if (( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )); then
-				local l_pid="${BASHPID}"
-			else
-				local l_pid="${!}"
-			fi
+			# if (( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )); then
+			#     local l_pid="${BASHPID}"
+			# else
+			#     local l_pid="${!}"
+			# fi
 			if [[ ${epoch_current_photo} -le ${epoch_end_at} ]]; then
-				echo "${l_pid} reaches the end. [${current_day}] vs [${OPT_END_AT}]]"
+				# echo "${l_pid} reaches the end. [${current_day}] vs [${OPT_END_AT}]]"
 				BREAK_TO_NEXT_GALLERY=1
 			fi
 		fi
@@ -566,6 +599,7 @@ function month_loop() {
 			RESULTS+=($?)
 		done
 		echo "Gallery: [$(basename "${CNT}")] Results: ${RESULTS[*]}"
+		echo
 	fi
 }
 
@@ -727,17 +761,17 @@ function mangle_options {
 		case "${1}" in
 			--auto-resume )
 				OPT_AUTO_RESUME=1
-				echo "auto-last";;
+				echo "opt: auto-last";;
 			# --concurrent-gallery )
 			#     OPT_CONCURRENT_GALLERY=1
 			#     echo "concurrent-gallery";;
 			--concurrent-month )
 				OPT_CONCURRENT_MONTH=1
-				echo "concurrent-month";;
+				echo "opt: concurrent-month";;
 			--concurrency )
 				if [[ ${2} =~ ^[0-9]+$ ]]; then
 					OPT_MAX_CONCURRENCY=${2}
-					echo "concurrency ${OPT_MAX_CONCURRENCY}"
+					echo "opt: concurrency ${OPT_MAX_CONCURRENCY}"
 					shift
 				else
 					echo "ERROR: concurrency: numerical value must be specified."
@@ -746,7 +780,7 @@ function mangle_options {
 			--start-from )
 				if [[ ${2} =~ ${RE_DATE} ]]; then
 					OPT_START_FROM=${2}
-					echo "start-from ${OPT_START_FROM}"
+					echo "opt: start-from ${OPT_START_FROM}"
 					shift
 				else
 					echo "ERROR: start-from: only 'YYYY-MM-DD' style is accepted."
@@ -755,7 +789,7 @@ function mangle_options {
 			--end-at )
 				if [[ ${2} =~ ${RE_DATE} ]]; then
 					OPT_END_AT=${2}
-					echo "end-at ${OPT_END_AT}"
+					echo "opt: end-at ${OPT_END_AT}"
 					shift
 				else
 					echo "ERROR: end-at: only 'YYYY-MM-DD' style is accepted."
@@ -763,28 +797,28 @@ function mangle_options {
 				fi;;
 			--dry-run )
 				OPT_DRY_RUN=1
-				echo "dry-run";;
+				echo "opt: dry-run";;
 			--ignore-url-check )
 				OPT_IGNORE_URL_CHECK=1
-				echo "ignore-url-check";;
+				echo "opt: ignore-url-check";;
 			--hd-plus )
 				OPT_FORCE_HD_PLUS=1
-				echo "hd-plus";;
+				echo "opt: hd-plus";;
 			--hd )
 				OPT_FORCE_HD=1
-				echo "hd";;
+				echo "opt: hd";;
 			--wqhd )
 				OPT_FORCE_WQHD=1
-				echo "wqhd";;
+				echo "opt: wqhd";;
 			--spc-del )
 				OPT_SPC_DELETE=1
-				echo "spc -> delete";;
+				echo "opt: spc -> delete";;
 			--spc-hyphen )
 				OPT_SPC_TR_HYPHEN=1
-				echo "spc -> hyphen";;
+				echo "opt: spc -> hyphen";;
 			--spc-under )
 				OPT_SPC_TR_UNDER=1
-				echo "spc -> under";;
+				echo "opt: spc -> under";;
 			--help )
 				show_help
 				exit;;
@@ -793,91 +827,91 @@ function mangle_options {
 					OPT_CNT=("${C_JP}" "${C_US}" "${C_UK}" "${C_AU}" "${C_CA}" "${C_IN}" "${C_FR}" "${C_IT}" "${C_DE}" "${C_ES}" "${C_BR}" "${C_CN}")
 					OPT_GAL_ALL=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-all"
+					echo "opt: gallery-all"
 				fi;;
 			--gallery-jp )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_JP)); then
 					OPT_CNT+=("${C_JP}")
 					OPT_GAL_JP=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-jp"
+					echo "opt: gallery-jp"
 				fi;;
 			--gallery-us )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_US)); then
 					OPT_CNT+=("${C_US}")
 					OPT_GAL_US=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-us"
+					echo "opt: gallery-us"
 				fi;;
 			--gallery-uk )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_UK)); then
 					OPT_CNT+=("${C_UK}")
 					OPT_GAL_UK=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-uk"
+					echo "opt: gallery-uk"
 				fi;;
 			--gallery-au )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_AU)); then
 					OPT_CNT+=("${C_AU}")
 					OPT_GAL_AU=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-au";
+					echo "opt: gallery-au";
 				fi;;
 			--gallery-ca )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_CA)); then
 					OPT_CNT+=("${C_CA}")
 					OPT_GAL_CA=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-ca";
+					echo "opt: gallery-ca";
 				fi;;
 			--gallery-in )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_IN)); then
 					OPT_CNT+=("${C_IN}")
 					OPT_GAL_IN=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-in";
+					echo "opt: gallery-in";
 				fi;;
 			--gallery-fr )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_FR)); then
 					OPT_CNT+=("${C_FR}")
 					OPT_GAL_FR=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-fr";
+					echo "opt: gallery-fr";
 				fi;;
 			--gallery-it )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_IT)); then
 					OPT_CNT+=("${C_IT}")
 					OPT_GAL_IT=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-it"
+					echo "opt: gallery-it"
 				fi;;
 			--gallery-de )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_DE)); then
 					OPT_CNT+=("${C_DE}")
 					OPT_GAL_DE=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-de"
+					echo "opt: gallery-de"
 				fi;;
 			--gallery-es )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_ES)); then
 					OPT_CNT+=("${C_ES}")
 					OPT_GAL_ES=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-es"
+					echo "opt: gallery-es"
 				fi;;
 			--gallery-br )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_BR)); then
 					OPT_CNT+=("${C_BR}")
 					OPT_GAL_BR=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-br"
+					echo "opt: gallery-br"
 				fi;;
 			--gallery-cn )
 				if ((! OPT_GAL_ALL && ! OPT_GAL_CN)); then
 					OPT_CNT+=("${C_CN}")
 					OPT_GAL_CN=1
 					GALLERY_ASSIGNED=1
-					echo "gallery-cn"
+					echo "opt: gallery-cn"
 				fi;;
 			* )
 				echo "ERROR: not supported option ${1}"
