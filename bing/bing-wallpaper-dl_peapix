@@ -322,7 +322,7 @@ function check_db_filename() {
 		w_echo "Already downloaded! [${PHOTO_ORIG_FILENAME}] @ ${FUNCNAME[0]}()"
 		SQL_SELECT="SELECT gallery_id,updated_date,title FROM bing_photos WHERE orig_filename='${PHOTO_ORIG_FILENAME}'"
 		local TITLE="$(sqlite3 "${DB_FILE}" <<< "${SQL_SELECT}" 2>> "${ERROR_LOG_FILE}")"
-		w_echo "As '${TITLE}'"
+		w_echo "    as '${TITLE}'"
 	fi
 
 	[[ $RECORDS -gt 255 ]] && RECORDS=255
@@ -341,7 +341,9 @@ function get_and_parse_detail_page() {
 	fi
 
 	# Scraping from the HTML
-	PHOTO_FILE_URL="$(echo "${HTML}" |  grep 'src: "https://img\.peapix\.com/.*\.jpg' | "${GNU_SED_BIN}" -e 's/^ \+//g' -e 's/_UHD//g' -e 's/src: "\(.\+\)",/\1/g' -e 's/\r$//g')"
+	# TODO: delete after verification
+	# PHOTO_FILE_URL="$(echo "${HTML}" | grep 'src: "https://img\.peapix\.com/.*\.jpg' | "${GNU_SED_BIN}" -e 's/^ \+//g' -e 's/_UHD//g' -e 's/src: "\(.\+\)",/\1/g' -e 's/\r$//g')"
+	PHOTO_FILE_URL="$(echo "${HTML}" | grep "gallery-item" | grep -o 'https://img\.peapix\.com/.*\.jpg' | "${GNU_SED_BIN}" -e 's/^ \+//g' -e 's/_UHD//g' -e 's/src: "\(.\+\)",/\1/g' -e 's/\r$//g')"
 
 	# Convert '5b2e5c1b1e6542408f4cfa822354184f_UHD.jpg' to '5b2e5c1b1e6542408f4cfa822354184f'
 	PHOTO_ORIG_FILENAME="$(basename "${PHOTO_FILE_URL}" | "${GNU_SED_BIN}" -e 's/\.jpg$//g' -e 's/_.\+$//g')"
@@ -357,12 +359,14 @@ function get_and_parse_detail_page() {
 		PHOTO_TITLE_SAFE="$(echo "${PHOTO_TITLE}" | tr "/" "-")"
 	fi
 	PHOTO_DATE="$(echo "${HTML}" | grep -o '<time datetime=".*">' | "${GNU_SED_BIN}" -e 's/<time datetime="\([0-9-]\+\)">/\1/g')"
-	PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="typography-body-2 font-weight-medium mb-3"' | "${GNU_SED_BIN}" -e 's/<h2[^>]\+>\(.\+\)<\/h2>/\1/g')"
+	# TODO: delete after verification
+	# PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="typography-body-2 font-weight-medium mb-3"' | "${GNU_SED_BIN}" -e 's/<h2[^>]\+>\(.\+\)<\/h2>/\1/g')"
+	PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="mb-4 fs-6"' | "${GNU_SED_BIN}" -e 's/<h3[^>]\+>\(.\+\)<\/h3>/\1/' -e 's/^[[:space:]]\+//')"
 	PHOTO_FILENAME="${OUTPUT_DIR}/${PHOTO_DATE}_${PHOTO_TITLE_SAFE}.jpg"
 	# w_echo "PHOTO_FILE_URL: ${PHOTO_FILE_URL}"
 	# w_echo "${PHOTO_DATE} ${PHOTO_TITLE}"
 	# w_echo "PHOTO_ORIG_FILENAME: ${PHOTO_ORIG_FILENAME}"
-	# w_echo "${PHOTO_SHORT_DESC}"
+	# w_echo "PHOTO_SHORT_DESC: ${PHOTO_SHORT_DESC}"
 	# w_echo "PHOTO_FILENAME: ${PHOTO_FILENAME}"
 }
 
@@ -516,7 +520,7 @@ function day_loop() {
 
 		local PAGE="${DETAIL_PAGE_LIST[i]}"
 		local L_PID
-		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${BASHPID}" || L_PID="${!}"
+		(( OPT_CONCURRENT_GALLERY || OPT_CONCURRENT_MONTH )) && L_PID="${BASHPID}" || L_PID="${$}"
 		printf "PID:%7d / Total Attempts:%d / Gallery:%s/%d / %s-%s-%02d / Downloaded:%d\n" \
 			"${L_PID}" \
 			"${DL_NUM}" \
@@ -565,7 +569,7 @@ function month_loop() {
 		h_rule -
 		DETAIL_PAGE_LIST=()
 		DETAIL_PAGE_LIST=($(curl -s "${BASE_URL}${CNT}${YEAR}/${MONTH}" \
-			| grep "image-list__picture-link" \
+			| grep "${SCRAPING_KEYWORD}" \
 			| "${GNU_GREP_BIN}" -Po 'href=".+?"' \
 			| "${GNU_SED_BIN}" -e 's/href="\(.\+\)"/\1/g'))
 		#TODO: Check null
@@ -930,6 +934,7 @@ function mangle_options {
 ##### Entry point
 SITE_ID="peapix"
 BASE_URL="https://peapix.com"
+SCRAPING_KEYWORD="d-block aspect-3/2"
 
 # Galleries
 C_GEN="/bing/"; C_AU="/bing/au/"; C_CA="/bing/ca/"; C_CN="/bing/cn/"; C_DE="/bing/de/"
