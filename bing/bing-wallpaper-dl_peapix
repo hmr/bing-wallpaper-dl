@@ -245,8 +245,8 @@ function get_info_hash_duplicated() {
 	fi
     local hash_blake3="${1}"
 
-	local query="SELECT gallery_id,updated_date,title FROM bing_photos WHERE hash_blake3='${hash_blake3}'"
-	local result="$(sqlite3 "${DB_FILE}" "${query}")" \
+	local query="SELECT gallery_id,updated_date,title FROM bing_photos WHERE hash_blake2='${hash_blake3}'"
+	local result="$(sqlite2 "${DB_FILE}" "${query}")" \
 		|| { echo "ERROR: sqlite3 error $? at ${FUNCNAME[0]}()"; exit 1;}
 
 	echo "${result}"
@@ -363,11 +363,21 @@ function get_and_parse_detail_page() {
 	# PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="typography-body-2 font-weight-medium mb-3"' | "${GNU_SED_BIN}" -e 's/<h2[^>]\+>\(.\+\)<\/h2>/\1/g')"
 	PHOTO_SHORT_DESC="$(echo "${HTML}" | grep 'class="mb-4 fs-6"' | "${GNU_SED_BIN}" -e 's/<h3[^>]\+>\(.\+\)<\/h3>/\1/' -e 's/^[[:space:]]\+//')"
 	PHOTO_FILENAME="${OUTPUT_DIR}/${PHOTO_DATE}_${PHOTO_TITLE_SAFE}.jpg"
+
+	PHOTO_COPYRIGHT=$(echo "$HTML" | grep '<p class="text-body-secondary fs-sm mb-3">' | sed -e 's/^ *//' -e 's|<[^>]\+>||g' -e 's/[\r\n\x00]*$//')
+	PHOTO_COPYRIGHT_SAFE="${PHOTO_COPYRIGHT//\'/\'\'}"
+
+	PHOTO_LONG_DESC=$(echo "$HTML" | ${GNU_GREP_BIN} -Pzo '(?s)<div class=\"position-relative\">\K.*?(?=</div>)' | ${GNU_SED_BIN} -E -e 's/^ +//g' -e '1,2d' -e 's|<[^>]+>||g' -e 's/[\r\n\x00]*$//')
+	PHOTO_LONG_DESC_SAFE="${PHOTO_LONG_DESC//\'/\'\'}"
+
+	PHOTO_UPDATED_DATE="$(date +'%Y-%m-%d')"
 	# w_echo "PHOTO_FILE_URL: ${PHOTO_FILE_URL}"
 	# w_echo "${PHOTO_DATE} ${PHOTO_TITLE}"
 	# w_echo "PHOTO_ORIG_FILENAME: ${PHOTO_ORIG_FILENAME}"
-	# w_echo "PHOTO_SHORT_DESC: ${PHOTO_SHORT_DESC}"
+	# w_echo "PHOTO_COPYRIGHT ${PHOTO_COPYRIGHT}"
 	# w_echo "PHOTO_FILENAME: ${PHOTO_FILENAME}"
+	# w_echo "PHOTO_SHORT_DESC: ${PHOTO_SHORT_DESC}"
+	# w_echo "PHOTO_LONG_DESC: ${PHOTO_SLONG_DESC}"
 }
 
 # Download a photo.
@@ -463,11 +473,12 @@ function do_download() {
 	if [[ ! ${OPT_DRY_RUN} || ! ${FLG_HASH_DUP} ]]; then
 		local RETCODE="255"
 		while [[ ${RETCODE} -ne 0 ]]; do
-			local SQL_INSERT="INSERT INTO bing_photos(site_id, gallery_id,  updated_date, title, photo_url, width, height, orig_filename, saved_filename, hash_blake3, detail_page, short_desc) VALUES ('${SITE_ID}', '${GALLERY_ID}', '${PHOTO_DATE}', '${PHOTO_TITLE}', '${PHOTO_FILE_URL}', '${PHOTO_WIDTH}', '${PHOTO_HEIGHT}', '${PHOTO_ORIG_FILENAME}', '${PHOTO_FILENAME2#"output/"}', '${HASH_BLAKE3}', '$(basename "${DETAIL_PAGE_URL}")', '${PHOTO_SHORT_DESC}')"
+			local SQL_INSERT="INSERT INTO bing_photos(site_id, gallery_id, original_date, updated_date, title, photo_url, width, height, orig_filename, saved_filename, hash_blake3, detail_page, copyright, short_desc, long_desc) VALUES ('${SITE_ID}', '${GALLERY_ID}', '${PHOTO_DATE}', '${PHOTO_DATE}', '${PHOTO_TITLE}', '${PHOTO_FILE_URL}', '${PHOTO_WIDTH}', '${PHOTO_HEIGHT}', '${PHOTO_ORIG_FILENAME}', '${PHOTO_FILENAME2#"output/"}', '${HASH_BLAKE3}', '$(basename "${DETAIL_PAGE_URL}")', '${PHOTO_COPYRIGHT_SAFE}', '${PHOTO_SHORT_DESC}', '${PHOTO_LONG_DESC_SAFE}')"
 			sqlite3 "${DB_FILE}" <<< "${SQL_INSERT}" 2>> "${ERROR_LOG_FILE}"
 			RETCODE=$?
 			if [[ ${RETCODE} -ne 0 ]]; then
 				echo "ERROR: ${PHOTO_DATE} ${GALLERY_ID} ${PHOTO_FILE_URL} DB insert error [code:${RETCODE}] @ ${FUNCNAME[0]}" >> "${ERROR_LOG_FILE}"
+				#TODO: Add abnormal exit function
 			fi
 		done
 	fi
