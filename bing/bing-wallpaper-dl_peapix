@@ -583,7 +583,12 @@ function month_loop() {
 			| grep "${SCRAPING_KEYWORD}" \
 			| "${GNU_GREP_BIN}" -Po 'href=".+?"' \
 			| "${GNU_SED_BIN}" -e 's/href="\(.\+\)"/\1/g'))
-		#TODO: Check null
+
+		# Array null check
+		if [[ -z "${my_array[*]-}" ]]; then
+			echo "ERROR: Can't parse HTML correctly @ ${FUNCNAME[0]}()"
+			exit 1
+		fi
 
 		if [[ ${OPT_CONCURRENT_MONTH} ]]; then
 			# Concurrent download for month
